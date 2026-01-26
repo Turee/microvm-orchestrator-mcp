@@ -1,0 +1,28 @@
+# Nix/direnv
+.direnv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+
+# Claude Code
+.claude/*.local.md
+
+# Task artifacts
+.microvm/tasks/
+
+# Nix build outputs
+result
+result-mcp-*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Beads
+.beads/export-state
