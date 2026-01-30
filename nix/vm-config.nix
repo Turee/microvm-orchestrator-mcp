@@ -18,6 +18,7 @@ let
         gawk = pkgs.gawk;
         nodejs = pkgs.nodejs_22;
         gnugrep = pkgs.gnugrep;
+        nix = pkgs.nix;
       }
     } $out
     chmod +x $out

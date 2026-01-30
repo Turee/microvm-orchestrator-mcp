@@ -194,6 +194,13 @@ if [ ! -d "$REPO_DIR" ]; then
   exit 1
 fi
 
+# Check for flake.nix (required for nix develop)
+if [ ! -f "$REPO_DIR/flake.nix" ]; then
+  log "ERROR: No flake.nix found at $REPO_DIR/flake.nix"
+  write_result false "No flake.nix found" "Repository must contain flake.nix at root for nix develop environment. See nix_flake_plan.md for requirements." 1
+  exit 1
+fi
+
 # Read task
 TASK=$(cat "$TASK_FILE")
 log "Task: $TASK"
@@ -290,7 +297,7 @@ fi
 
 cd "$REPO_DIR"
 TASK=\$(cat "/workspace/task.md")
-exec @nodejs@/bin/npx -y @anthropic-ai/claude-code@latest --dangerously-skip-permissions --output-format stream-json --verbose -p "\$TASK"
+exec @nix@/bin/nix develop . --command @nodejs@/bin/npx -y @anthropic-ai/claude-code@latest --dangerously-skip-permissions --output-format stream-json --verbose -p "\$TASK"
 EOF
 chmod 755 "$WRAPPER"
 
