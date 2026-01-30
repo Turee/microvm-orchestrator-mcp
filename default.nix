@@ -1,10 +1,13 @@
 {
+  # Required arguments - no defaults, fail early if missing
+  taskDir,
+  nixStoreImage,
+  socketPath,
+  slot,
+  # Optional arguments
   configFile ? "",
-  taskDir ? "/tmp/claude-task",
   varDir ? "",
   containerDir ? "",
-  socketPath ? "control.socket",
-  slot ? "1",
 }:
 
 let
@@ -45,11 +48,9 @@ let
       microvmModules
       (import ./nix/vm-config.nix {
         projectConfig = config;
-        taskDir = taskDir;
+        inherit taskDir nixStoreImage socketPath hostPkgs;
         varDir = effectiveVarDir;
         containerDir = effectiveContainerDir;
-        socketPath = socketPath;
-        inherit hostPkgs;
       })
     ];
   };

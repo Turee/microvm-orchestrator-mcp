@@ -55,6 +55,7 @@ def build_vm(
         "DELEGATE_TASK_DIR": "taskDir",
         "DELEGATE_VAR_DIR": "varDir",
         "MICROVM_CONTAINER_DIR": "containerDir",
+        "MICROVM_NIX_STORE_IMAGE": "nixStoreImage",
         "DELEGATE_SOCKET": "socketPath",
         "MICROVM_SLOT": "slot",
         "MICROVM_CONFIG_FILE": "configFile",
@@ -329,6 +330,7 @@ def prepare_vm_env(task: Task, api_key: str, start_ref: str, config_file: Option
         "DELEGATE_SOCKET": str(task.task_dir / "socket"),
         "MICROVM_SLOT": str(task.slot),
         "MICROVM_CONTAINER_DIR": str(slot_dir / "container-storage"),
+        "MICROVM_NIX_STORE_IMAGE": str(slot_dir / "nix-store.img"),
         "MICROVM_PACKAGE": "claude-microvm",
     }
 

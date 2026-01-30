@@ -3,6 +3,7 @@
   taskDir,
   varDir,
   containerDir,
+  nixStoreImage,
   socketPath,
   hostPkgs,
 }:
@@ -128,8 +129,17 @@ in
       }
     ];
 
-    # No ext4 volumes needed - using virtiofs for all persistent storage
-    volumes = [ ];
+    # Writable Nix store overlay for building packages inside VM
+    writableStoreOverlay = "/nix/.rw-store";
+
+    # Ext4 volume for writable Nix store (30GB - Nix store can grow large)
+    volumes = [
+      {
+        image = nixStoreImage;
+        mountPoint = "/nix/.rw-store";
+        size = 30000;
+      }
+    ];
 
     shares = [
       # Host nix store (read-only)
