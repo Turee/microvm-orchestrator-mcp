@@ -20,9 +20,10 @@ When working on this codebase, adopt the mindset of a **principal engineer**. Th
 
 1. **Task Isolation**: Spawns lightweight Linux VMs to run Claude Code tasks in sandboxed environments
 2. **Parallel Execution**: Supports multiple concurrent tasks using slot-based persistent storage
-3. **Git Integration**: Automatically creates isolated repositories, executes work, and merges results back
-4. **Event-Driven**: Emits async events for task completion/failure monitoring
-5. **Secure Credentials**: Manages API keys securely within VM lifecycle
+3. **Flake-Based Environments**: Target repos define their tooling in `flake.nix`; Claude runs inside `nix develop`
+4. **Git Integration**: Automatically creates isolated repositories, executes work, and merges results back
+5. **Event-Driven**: Emits async events for task completion/failure monitoring
+6. **Secure Credentials**: Manages API keys securely within VM lifecycle
 
 ### Why It Exists
 
@@ -66,6 +67,14 @@ Running untrusted or experimental code in the main environment is risky. This or
 - Modifying the VM environment variables or mounts
 
 These are critical paths where bugs cause data loss or deadlocks.
+
+### Repository Requirements for Tasks
+
+Target repositories MUST have:
+- `flake.nix` at root with `devShells.default` output
+- Network access for fetching Nix flake inputs
+
+The task runner validates `flake.nix` exists and fails fast if missing. See README.md for template.
 
 ---
 

@@ -17,6 +17,61 @@ MCP server for orchestrating parallel execution of development tasks in isolated
 - Git repository (tasks run in isolated git clones)
 - Python 3.13+
 
+## Target Repository Requirements
+
+Your repository must contain a `flake.nix` at the root with a `devShells.default` output.
+This defines the development environment for Claude Code running inside the microVM.
+
+### Example flake.nix
+
+```nix
+{
+  description = "Project Development Environment";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
+
+  outputs = { self, nixpkgs, flake-utils }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = import nixpkgs { inherit system; };
+      in
+      {
+        devShells.default = pkgs.mkShell {
+          buildInputs = with pkgs; [
+            # Add your tools here
+            nodejs_22
+            bun
+            jdk21
+            # etc.
+          ];
+
+          shellHook = ''
+            echo "Development environment loaded"
+          '';
+        };
+      }
+    );
+}
+```
+
+### How It Works
+
+1. The orchestrator **clones your repository** to an isolated working directory
+2. The microVM boots and mounts the **cloned repo** at `/workspace/repo`
+3. The task runner executes: `nix develop . --command <claude-code>`
+4. Nix fetches inputs, builds devShell, and launches Claude with your tools available
+5. Claude can modify `flake.nix` to add dependencies, then `nix develop` again
+6. Changes are committed to the clone and merged back after task completion
+
+### Dynamic Dependencies
+
+Claude can add tools during a task by editing `flake.nix`. For example, to add
+PostgreSQL client tools, Claude would add `pkgs.postgresql` to `buildInputs`
+and re-enter the shell with `nix develop`.
+
 ## Installation
 
 ```bash
