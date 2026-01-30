@@ -8,13 +8,14 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from microvm_orchestrator.core.task import Task, TaskStatus
 from microvm_orchestrator.core.events import EventQueue, TaskEvent, EventType
 from microvm_orchestrator.core.git import MergeResult
+from microvm_orchestrator.tools import Orchestrator
 
 from .fixtures.mocks import (
     SubprocessMock,
@@ -308,6 +309,45 @@ def mock_orchestrator_env(tmp_project: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-api-key")
 
     return tmp_project
+
+
+@pytest.fixture
+def mock_orchestrator_deps():
+    """Mock all dependencies needed for Orchestrator methods."""
+    mock_vm = MagicMock()
+    mock_vm.start_async = AsyncMock(return_value=12345)
+    mock_vm.stop = MagicMock()
+
+    with patch("microvm_orchestrator.tools.VMProcess", return_value=mock_vm) as vm_cls, \
+         patch("microvm_orchestrator.tools.setup_isolated_repo_async", new_callable=AsyncMock) as setup_repo, \
+         patch("microvm_orchestrator.tools.write_task_files") as write_files, \
+         patch("microvm_orchestrator.tools.prepare_vm_env") as prep_env, \
+         patch("microvm_orchestrator.tools.merge_task_commits") as merge, \
+         patch("microvm_orchestrator.tools.cleanup_task_ref") as cleanup_ref:
+
+        setup_repo.return_value = "abc123startref"
+        prep_env.return_value = {"DELEGATE_TASK_DIR": "/tmp/task"}
+        merge.return_value = MergeResult(merged=True, method="fast-forward", commits=3)
+
+        yield {
+            "vm_process_class": vm_cls,
+            "vm_process": mock_vm,
+            "setup_repo": setup_repo,
+            "write_files": write_files,
+            "prepare_env": prep_env,
+            "merge": merge,
+            "cleanup_ref": cleanup_ref,
+        }
+
+
+@pytest.fixture
+def orchestrator(tmp_project: Path, monkeypatch: pytest.MonkeyPatch):
+    """Create Orchestrator with mocked plugin dir."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-api-key")
+    (tmp_project / "default.nix").write_text("{}")
+
+    with patch.object(Orchestrator, "_get_plugin_dir", return_value=tmp_project):
+        return Orchestrator(project_root=tmp_project)
 
 
 # =============================================================================
