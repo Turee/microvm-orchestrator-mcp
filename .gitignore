@@ -8,6 +8,7 @@ __pycache__/
 .venv/
 venv/
 .env
+.coverage
 
 # Claude Code
 .claude/*.local.md
@@ -26,3 +27,4 @@ result-mcp-*
 
 # Beads
 .beads/export-state
+.env
