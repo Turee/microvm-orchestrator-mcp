@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
@@ -10,7 +11,7 @@ from typing import Any, Optional
 
 from .core.task import Task, TaskStatus
 from .core.events import EventQueue, EventType
-from .core.git import setup_isolated_repo, merge_task_commits, cleanup_task_ref
+from .core.git import setup_isolated_repo, setup_isolated_repo_async, merge_task_commits, cleanup_task_ref
 from .core.vm import VMConfig, VMProcess, prepare_vm_env, write_task_files
 
 
@@ -133,9 +134,12 @@ class Orchestrator:
         self._processes.pop(task.id, None)
 
     # Tool: run_task
-    def run_task(self, description: str, slot: int = 1) -> dict[str, Any]:
+    async def run_task(self, description: str, slot: int = 1) -> dict[str, Any]:
         """
         Start a new task in a microVM.
+
+        This is an async operation. The blocking git and nix-build operations
+        are run in thread pools to avoid blocking the event loop.
 
         Args:
             description: Task description/instructions for Claude.
@@ -162,8 +166,8 @@ class Orchestrator:
         self._tasks[task.id] = task
 
         try:
-            # Setup isolated git repo
-            start_ref = setup_isolated_repo(
+            # Setup isolated git repo (async to avoid blocking on git operations)
+            start_ref = await setup_isolated_repo_async(
                 original_repo=self.project_root,
                 task_repo=task.repo_path,
                 task_id=task.id,
@@ -189,7 +193,8 @@ class Orchestrator:
             process = VMProcess(task, config, on_exit=on_exit)
             # Register BEFORE start to prevent race with fast VM exit
             self._processes[task.id] = process
-            pid = process.start()
+            # Use async start to avoid blocking on nix-build (10-60s)
+            pid = await process.start_async()
             task.mark_running(pid)
 
             return {"task_id": task.id}
@@ -293,13 +298,16 @@ class Orchestrator:
         return event.to_dict()
 
     # Tool: cleanup_task
-    def cleanup_task(
+    async def cleanup_task(
         self,
         task_id: str,
         delete_ref: bool = False,
     ) -> dict[str, Any]:
         """
         Clean up task directory and optionally delete git ref.
+
+        This is an async operation. Blocking file system operations are run
+        in thread pools to avoid blocking the event loop.
 
         Args:
             task_id: Task ID
@@ -315,13 +323,13 @@ class Orchestrator:
             process.stop()
             self._processes.pop(task_id, None)
 
-        # Delete task directory
+        # Delete task directory (async to avoid blocking on large directories)
         if task.task_dir.exists():
-            shutil.rmtree(task.task_dir)
+            await asyncio.to_thread(shutil.rmtree, task.task_dir)
 
-        # Delete git ref if requested
+        # Delete git ref if requested (async for git subprocess)
         if delete_ref:
-            cleanup_task_ref(task.project_root, task_id)
+            await asyncio.to_thread(cleanup_task_ref, task.project_root, task_id)
 
         # Remove from tasks dict
         self._tasks.pop(task_id, None)

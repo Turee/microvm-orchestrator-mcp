@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import subprocess
 from dataclasses import dataclass
@@ -108,6 +109,22 @@ def setup_isolated_repo(
     run_git(["config", "user.name", f"Claude Task ({task_id})"], task_repo)
 
     return current_ref
+
+
+async def setup_isolated_repo_async(
+    original_repo: Path,
+    task_repo: Path,
+    task_id: str,
+) -> str:
+    """
+    Async version of setup_isolated_repo.
+
+    Wraps blocking git operations in asyncio.to_thread() to avoid
+    blocking the event loop.
+    """
+    return await asyncio.to_thread(
+        setup_isolated_repo, original_repo, task_repo, task_id
+    )
 
 
 def merge_task_commits(

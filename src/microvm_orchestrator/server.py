@@ -44,7 +44,7 @@ async def run_task(description: str, slot: int = 1) -> dict:
     """
     try:
         orchestrator = get_orchestrator()
-        return orchestrator.run_task(description, slot)
+        return await orchestrator.run_task(description, slot)
     except ToolError as e:
         return {"error": str(e)}
     except Exception as e:
@@ -125,7 +125,7 @@ async def cleanup_task(task_id: str, delete_ref: bool = False) -> dict:
     """
     try:
         orchestrator = get_orchestrator()
-        return orchestrator.cleanup_task(task_id, delete_ref)
+        return await orchestrator.cleanup_task(task_id, delete_ref)
     except ToolError as e:
         return {"error": str(e)}
     except Exception as e:

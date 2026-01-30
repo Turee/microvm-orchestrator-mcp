@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import pty
 import select
@@ -80,6 +81,21 @@ def build_vm(
 
     # Fall back to result symlink
     return nix_dir / f"result-mcp-{slot}"
+
+
+async def build_vm_async(
+    nix_dir: Path,
+    package_name: str = "claude-microvm",
+    env: dict[str, str] = None,
+    slot: int = 1,
+) -> Path:
+    """
+    Async version of build_vm.
+
+    Wraps blocking nix-build subprocess in asyncio.to_thread() to avoid
+    blocking the event loop. This is critical as nix-build can take 10-60s.
+    """
+    return await asyncio.to_thread(build_vm, nix_dir, package_name, env, slot)
 
 
 def find_runner(build_path: Path) -> Path:
@@ -161,6 +177,60 @@ class VMProcess:
             env=env,
             start_new_session=True,
         )
+
+        # Close slave fd in parent
+        os.close(slave_fd)
+
+        # Start monitoring thread
+        self._thread = threading.Thread(target=self._monitor, daemon=True)
+        self._thread.start()
+
+        return self._process.pid
+
+    async def start_async(self) -> int:
+        """
+        Async version of start().
+
+        Wraps blocking operations (nix-build, Popen) in asyncio.to_thread()
+        to avoid blocking the event loop. nix-build can take 10-60 seconds.
+
+        Returns the process PID.
+        """
+        # Build the VM with configuration passed via --argstr (async)
+        slot = int(self.config.env.get("MICROVM_SLOT", "1"))
+        build_path = await build_vm_async(
+            self.config.nix_dir, self.config.package_name, self.config.env, slot
+        )
+        runner_path = find_runner(build_path)
+
+        # Patch runner for log file output
+        patched_script = patch_runner_for_logfile(runner_path, self.task.log_path)
+
+        # Ensure log file exists
+        self.task.log_path.parent.mkdir(parents=True, exist_ok=True)
+        self.task.log_path.touch()
+
+        # Create pty for process
+        master_fd, slave_fd = pty.openpty()
+        self._master_fd = master_fd
+
+        # Prepare environment
+        env = os.environ.copy()
+        env.update(self.config.env)
+
+        # Start process with patched script via bash (in thread to avoid blocking)
+        def start_process():
+            return subprocess.Popen(
+                ["bash", "-c", patched_script],
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                cwd=self.config.nix_dir,
+                env=env,
+                start_new_session=True,
+            )
+
+        self._process = await asyncio.to_thread(start_process)
 
         # Close slave fd in parent
         os.close(slave_fd)
