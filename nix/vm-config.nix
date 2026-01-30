@@ -86,6 +86,12 @@ in
   # Enable networking for npm/API calls
   networking.firewall.enable = false;
 
+  # Enable Nix flakes and modern CLI for in-VM builds
+  nix.settings = {
+    experimental-features = [ "nix-command" "flakes" ];
+    trusted-users = [ "root" "claude" ];
+  };
+
   # Autologin and run task script
   services.getty.autologinUser = "root";
   programs.bash.loginShellInit = ''
