@@ -307,11 +307,6 @@ def mock_orchestrator_env(tmp_project: Path, monkeypatch: pytest.MonkeyPatch):
     # Set API key
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-api-key")
 
-    # Create config file
-    config_dir = tmp_project / ".microvm"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "config.json").write_text('{"version": 1}')
-
     return tmp_project
 
 

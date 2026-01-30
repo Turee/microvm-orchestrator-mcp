@@ -5,7 +5,6 @@
   socketPath,
   slot,
   # Optional arguments
-  configFile ? "",
   varDir ? "",
   containerDir ? "",
 }:
@@ -27,16 +26,6 @@ let
   # Import microvm modules
   microvmModules = import "${microvm}/nixos-modules/microvm";
 
-  # Read config from file path passed via argument
-  defaultConfig = {
-    packages = [ ];
-  };
-  config =
-    if configFile == "" then
-      defaultConfig
-    else
-      defaultConfig // builtins.fromJSON (builtins.readFile configFile);
-
   # Convert empty strings to null for optional paths
   effectiveVarDir = if varDir == "" then null else varDir;
   effectiveContainerDir = if containerDir == "" then null else containerDir;
@@ -47,7 +36,6 @@ let
     modules = [
       microvmModules
       (import ./nix/vm-config.nix {
-        projectConfig = config;
         inherit taskDir nixStoreImage socketPath hostPkgs;
         varDir = effectiveVarDir;
         containerDir = effectiveContainerDir;

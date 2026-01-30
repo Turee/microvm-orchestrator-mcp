@@ -53,16 +53,6 @@ class Orchestrator:
             )
         return plugin_dir
 
-    def _get_config_file(self) -> Path:
-        """Get the project's .microvm/config.json."""
-        config_file = self.project_root / ".microvm" / "config.json"
-        if not config_file.exists():
-            raise ToolError(
-                "No .microvm/config.json found. "
-                "Run /microvm-orchestrator:init first."
-            )
-        return config_file
-
     def _get_api_key(self) -> str:
         """Get API key from environment or keychain."""
         # Check environment variables
@@ -153,7 +143,6 @@ class Orchestrator:
         """
         # Validate
         plugin_dir = self._get_plugin_dir()
-        config_file = self._get_config_file()
         api_key = self._get_api_key()
 
         # Create task
@@ -176,8 +165,8 @@ class Orchestrator:
             # Write task files
             write_task_files(task, api_key, start_ref)
 
-            # Prepare VM environment (includes MICROVM_CONFIG_FILE)
-            vm_env = prepare_vm_env(task, api_key, start_ref, config_file)
+            # Prepare VM environment
+            vm_env = prepare_vm_env(task, api_key, start_ref)
 
             # Create VM config (uses plugin's default.nix)
             config = VMConfig(

@@ -405,28 +405,6 @@ class TestPrepareVMEnv:
         assert env["MICROVM_NIX_STORE_IMAGE"] == str(slot_dir / "nix-store.img")
         assert env["MICROVM_PACKAGE"] == "claude-microvm"
 
-    def test_prepare_vm_env_with_config_file(self, sample_task: Task, tmp_path: Path):
-        """Includes config file path when provided."""
-        config_file = tmp_path / "config.json"
-        config_file.write_text('{"packages": []}')
-
-        with patch("microvm_orchestrator.core.vm.get_slot_dir") as mock_slot:
-            slot_dir = tmp_path / "slots" / "1"
-            slot_dir.mkdir(parents=True)
-            (slot_dir / "var").mkdir()
-            (slot_dir / "container-storage").mkdir()
-            mock_slot.return_value = slot_dir
-
-            with patch("microvm_orchestrator.core.vm.ensure_slot_initialized", return_value=slot_dir):
-                env = prepare_vm_env(
-                    task=sample_task,
-                    api_key="test-key",
-                    start_ref="abc123",
-                    config_file=config_file,
-                )
-
-        assert env["MICROVM_CONFIG_FILE"] == str(config_file.absolute())
-
 
 # =============================================================================
 # Slot Directory Tests

@@ -1,5 +1,4 @@
 {
-  projectConfig,
   taskDir,
   varDir,
   containerDir,
@@ -9,9 +8,6 @@
 }:
 { pkgs, lib, ... }:
 let
-  # Resolve package names from config to actual packages
-  extraPackages = builtins.map (name: pkgs.${name}) projectConfig.packages;
-
   # Script to run Claude Code task
   runClaudeTask = pkgs.runCommand "run-claude-task" { } ''
     cp ${
@@ -80,8 +76,7 @@ in
       gnugrep
       nodejs_22
       podman-compose # For docker-compose.yml support
-    ]
-    ++ extraPackages;
+    ];
 
   # Enable networking for npm/API calls
   networking.firewall.enable = false;

@@ -58,7 +58,6 @@ def build_vm(
         "MICROVM_NIX_STORE_IMAGE": "nixStoreImage",
         "DELEGATE_SOCKET": "socketPath",
         "MICROVM_SLOT": "slot",
-        "MICROVM_CONFIG_FILE": "configFile",
     }
 
     for env_var, arg_name in arg_mapping.items():
@@ -317,11 +316,11 @@ def ensure_slot_initialized(slot: int) -> Path:
     return slot_dir
 
 
-def prepare_vm_env(task: Task, api_key: str, start_ref: str, config_file: Optional[Path] = None) -> dict[str, str]:
+def prepare_vm_env(task: Task, api_key: str, start_ref: str) -> dict[str, str]:
     """Prepare environment variables for VM execution."""
     slot_dir = ensure_slot_initialized(task.slot)
 
-    env = {
+    return {
         "DELEGATE_GIT_DIR": str(task.repo_path / ".git"),
         "DELEGATE_GIT_ROOT": str(task.repo_path),
         "DELEGATE_TASK_DIR": str(task.task_dir),
@@ -333,12 +332,6 @@ def prepare_vm_env(task: Task, api_key: str, start_ref: str, config_file: Option
         "MICROVM_NIX_STORE_IMAGE": str(slot_dir / "nix-store.img"),
         "MICROVM_PACKAGE": "claude-microvm",
     }
-
-    # Add config file path if provided
-    if config_file is not None:
-        env["MICROVM_CONFIG_FILE"] = str(config_file.absolute())
-
-    return env
 
 
 def write_task_files(task: Task, api_key: str, start_ref: str) -> None:
