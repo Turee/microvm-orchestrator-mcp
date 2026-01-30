@@ -259,6 +259,9 @@ mkdir -p "$CLAUDE_RUNTIME_DIR"
 chown claude:users "$CLAUDE_RUNTIME_DIR"
 chmod 700 "$CLAUDE_RUNTIME_DIR"
 
+# Chown the repo to claude user so git operations work
+chown -R claude:users "$REPO_DIR"
+
 # Create a wrapper so we can set env + run inside repo as claude.
 WRAPPER="$(mktemp /tmp/claude-wrapper.XXXXXX)"
 cat <<EOF > "$WRAPPER"
@@ -269,13 +272,18 @@ export HOME="/home/claude"
 export USER="claude"
 export LOGNAME="claude"
 export XDG_RUNTIME_DIR="$CLAUDE_RUNTIME_DIR"
+
+# Configure git safe.directory using environment variables (for libgit2 used by nix)
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0="safe.directory"
+export GIT_CONFIG_VALUE_0="*"
 export GIT_CONFIG_NOSYSTEM=1
 export GIT_CONFIG_GLOBAL="/tmp/gitconfig-claude"
 
 # Ensure git trusts the repo without touching ~/.gitconfig (no locks/stale state).
 cat > "\$GIT_CONFIG_GLOBAL" <<EOGIT
 [safe]
-	directory = $REPO_DIR
+	directory = *
 EOGIT
 chmod 600 "\$GIT_CONFIG_GLOBAL" 2>/dev/null || true
 
@@ -297,15 +305,19 @@ fi
 
 cd "$REPO_DIR"
 TASK=\$(cat "/workspace/task.md")
-exec @nix@/bin/nix develop . --command @nodejs@/bin/npx -y @anthropic-ai/claude-code@latest --dangerously-skip-permissions --output-format stream-json --verbose -p "\$TASK"
+# Use path:. to avoid git ownership checks (treats as plain directory instead of git repo)
+exec @nix@/bin/nix develop path:. --command @nodejs@/bin/npx -y @anthropic-ai/claude-code@latest --dangerously-skip-permissions --output-format stream-json --verbose -p "\$TASK"
 EOF
 chmod 755 "$WRAPPER"
 
 # Run and capture the *real* exit code of su (wrapper).
+# Disable pipefail temporarily so su exit code doesn't trigger ERR trap
+set +o pipefail
 set +e
 su -s @bash@/bin/bash claude -c "$WRAPPER" 2>&1 | tee "$STREAM_LOG_FILE"
 CLAUDE_EXIT="${PIPESTATUS[0]}"
 set -e
+set -o pipefail
 rm -f "$WRAPPER" 2>/dev/null || true
 
 if [ "$CLAUDE_EXIT" -eq 0 ]; then

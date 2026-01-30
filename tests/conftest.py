@@ -34,6 +34,9 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "integration: marks tests as integration tests (may be slow)"
     )
+    config.addinivalue_line(
+        "markers", "slow: marks tests as slow (e.g., e2e tests with real VMs)"
+    )
 
 
 # =============================================================================
