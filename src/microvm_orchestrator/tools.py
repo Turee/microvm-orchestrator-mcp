@@ -27,13 +27,13 @@ class Orchestrator:
     Maintains state across tool calls.
     """
 
-    def __init__(self, project_root: Optional[Path] = None):
-        self.project_root = project_root or self._detect_project_root()
+    def __init__(self, repo_path: Optional[Path] = None):
+        self.repo_path = repo_path or self._detect_repo_path()
         self.event_queue = EventQueue()
         self._processes: dict[str, VMProcess] = {}
         self._tasks: dict[str, Task] = {}
 
-    def _detect_project_root(self) -> Path:
+    def _detect_repo_path(self) -> Path:
         """Detect git root from current directory."""
         cwd = Path.cwd()
         while cwd != cwd.parent:
@@ -109,8 +109,8 @@ class Orchestrator:
             if start_ref_file.exists():
                 start_ref = start_ref_file.read_text().strip()
                 merge_result_obj = merge_task_commits(
-                    original_repo=task.project_root,
-                    task_repo=task.repo_path,
+                    original_repo=task.repo_path,
+                    task_repo=task.isolated_repo_path,
                     task_id=task.id,
                     start_ref=start_ref,
                 )
@@ -160,7 +160,7 @@ class Orchestrator:
         task = Task.create(
             description=description,
             slot=slot,
-            project_root=self.project_root,
+            repo_path=self.repo_path,
         )
         task.save()
         self._tasks[task.id] = task
@@ -168,8 +168,8 @@ class Orchestrator:
         try:
             # Setup isolated git repo (async to avoid blocking on git operations)
             start_ref = await setup_isolated_repo_async(
-                original_repo=self.project_root,
-                task_repo=task.repo_path,
+                original_repo=self.repo_path,
+                task_repo=task.isolated_repo_path,
                 task_id=task.id,
             )
 
@@ -235,6 +235,7 @@ class Orchestrator:
             "status": status,
             "slot": task.slot,
             "repo_path": str(task.repo_path),
+            "isolated_repo_path": str(task.isolated_repo_path),
             "created_at": task.created_at.isoformat(),
             "started_at": task.started_at.isoformat() if task.started_at else None,
             "completed_at": task.completed_at.isoformat() if task.completed_at else None,
@@ -329,7 +330,7 @@ class Orchestrator:
 
         # Delete git ref if requested (async for git subprocess)
         if delete_ref:
-            await asyncio.to_thread(cleanup_task_ref, task.project_root, task_id)
+            await asyncio.to_thread(cleanup_task_ref, task.repo_path, task_id)
 
         # Remove from tasks dict
         self._tasks.pop(task_id, None)
@@ -342,7 +343,7 @@ class Orchestrator:
             return self._tasks[task_id]
 
         # Try to load from disk
-        task_dir = self.project_root / ".microvm" / "tasks" / task_id
+        task_dir = self.repo_path / ".microvm" / "tasks" / task_id
         if not task_dir.exists():
             raise ToolError(f"Task not found: {task_id}")
 
@@ -352,7 +353,7 @@ class Orchestrator:
 
     def list_tasks(self) -> list[dict[str, Any]]:
         """List all tasks (for debugging)."""
-        tasks_dir = self.project_root / ".microvm" / "tasks"
+        tasks_dir = self.repo_path / ".microvm" / "tasks"
         if not tasks_dir.exists():
             return []
 

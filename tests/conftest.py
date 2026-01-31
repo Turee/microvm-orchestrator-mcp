@@ -113,7 +113,7 @@ def sample_task(tmp_project: Path, fixed_uuid: str) -> Task:
         description="Test task description",
         status=TaskStatus.PENDING,
         slot=1,
-        project_root=tmp_project,
+        repo_path=tmp_project,
     )
 
 
@@ -125,7 +125,7 @@ def running_task(tmp_project: Path, fixed_uuid: str, frozen_time: datetime) -> T
         description="Test task description",
         status=TaskStatus.RUNNING,
         slot=1,
-        project_root=tmp_project,
+        repo_path=tmp_project,
         started_at=frozen_time,
         pid=12345,
     )
@@ -139,7 +139,7 @@ def completed_task(tmp_project: Path, fixed_uuid: str, frozen_time: datetime) ->
         description="Test task description",
         status=TaskStatus.COMPLETED,
         slot=1,
-        project_root=tmp_project,
+        repo_path=tmp_project,
         started_at=frozen_time,
         completed_at=frozen_time,
         exit_code=0,
@@ -154,7 +154,7 @@ def failed_task(tmp_project: Path, fixed_uuid: str, frozen_time: datetime) -> Ta
         description="Test task description",
         status=TaskStatus.FAILED,
         slot=1,
-        project_root=tmp_project,
+        repo_path=tmp_project,
         started_at=frozen_time,
         completed_at=frozen_time,
         exit_code=1,
@@ -350,7 +350,7 @@ def orchestrator(tmp_project: Path, monkeypatch: pytest.MonkeyPatch):
     (tmp_project / "default.nix").write_text("{}")
 
     with patch.object(Orchestrator, "_get_plugin_dir", return_value=tmp_project):
-        return Orchestrator(project_root=tmp_project)
+        return Orchestrator(repo_path=tmp_project)
 
 
 # =============================================================================

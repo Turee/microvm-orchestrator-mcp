@@ -334,10 +334,10 @@ def prepare_vm_env(task: Task, api_key: str, start_ref: str) -> dict[str, str]:
     slot_dir = ensure_slot_initialized(task.slot)
 
     return {
-        "DELEGATE_GIT_DIR": str(task.repo_path / ".git"),
-        "DELEGATE_GIT_ROOT": str(task.repo_path),
+        "DELEGATE_GIT_DIR": str(task.isolated_repo_path / ".git"),
+        "DELEGATE_GIT_ROOT": str(task.isolated_repo_path),
         "DELEGATE_TASK_DIR": str(task.task_dir),
-        "DELEGATE_ORIGINAL_REPO": str(task.project_root),
+        "DELEGATE_ORIGINAL_REPO": str(task.repo_path),
         "DELEGATE_VAR_DIR": str(slot_dir / "var"),
         "DELEGATE_SOCKET": str(task.task_dir / "socket"),
         "MICROVM_SLOT": str(task.slot),

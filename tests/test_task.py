@@ -32,18 +32,18 @@ class TestTaskCreation:
         task = Task.create(
             description="Test description",
             slot=1,
-            project_root=tmp_project,
+            repo_path=tmp_project,
         )
 
         assert task.status == TaskStatus.PENDING
         assert task.description == "Test description"
         assert task.slot == 1
-        assert task.project_root == tmp_project
+        assert task.repo_path == tmp_project
 
     def test_create_generates_uuid(self, tmp_project: Path):
         """Task.create() generates unique IDs."""
-        task1 = Task.create("task1", slot=1, project_root=tmp_project)
-        task2 = Task.create("task2", slot=2, project_root=tmp_project)
+        task1 = Task.create("task1", slot=1, repo_path=tmp_project)
+        task2 = Task.create("task2", slot=2, repo_path=tmp_project)
 
         assert task1.id != task2.id
         # UUID format check
@@ -52,7 +52,7 @@ class TestTaskCreation:
 
     def test_create_with_mocked_uuid(self, tmp_project: Path, mock_uuid, fixed_uuid: str):
         """Task.create() uses uuid.uuid4 for ID generation."""
-        task = Task.create("test", slot=1, project_root=tmp_project)
+        task = Task.create("test", slot=1, repo_path=tmp_project)
 
         assert task.id == fixed_uuid
 
@@ -161,7 +161,7 @@ class TestThreadSafety:
         """Concurrent mark_running() calls are thread-safe."""
         # Create many tasks to test
         tasks = [
-            Task.create(f"task-{i}", slot=i, project_root=tmp_project)
+            Task.create(f"task-{i}", slot=i, repo_path=tmp_project)
             for i in range(10)
         ]
 
@@ -195,7 +195,7 @@ class TestThreadSafety:
 
     def test_concurrent_terminal_transitions(self, tmp_project: Path):
         """Only one terminal transition succeeds under concurrent access."""
-        task = Task.create("concurrent-test", slot=1, project_root=tmp_project)
+        task = Task.create("concurrent-test", slot=1, repo_path=tmp_project)
         task.mark_running(pid=1234)
 
         results = {"completed": 0, "failed": 0}
@@ -269,7 +269,7 @@ class TestPersistence:
         assert data["description"] == sample_task.description
         assert data["status"] == "pending"
         assert data["slot"] == sample_task.slot
-        assert data["project_root"] == str(sample_task.project_root)
+        assert data["repo_path"] == str(sample_task.repo_path)
         assert "created_at" in data
 
     def test_load_restores_lock(self, sample_task: Task):
@@ -294,7 +294,7 @@ class TestTimestamps:
     def test_created_at_set_on_init(self, tmp_project: Path):
         """created_at is set when Task is created."""
         before = datetime.now(timezone.utc)
-        task = Task.create("test", slot=1, project_root=tmp_project)
+        task = Task.create("test", slot=1, repo_path=tmp_project)
         after = datetime.now(timezone.utc)
 
         assert task.created_at is not None
@@ -359,37 +359,37 @@ class TestPathProperties:
 
     def test_task_dir(self, sample_task: Task, fixed_uuid: str):
         """task_dir returns correct path."""
-        expected = sample_task.project_root / ".microvm" / "tasks" / fixed_uuid
+        expected = sample_task.repo_path / ".microvm" / "tasks" / fixed_uuid
         assert sample_task.task_dir == expected
 
-    def test_repo_path(self, sample_task: Task, fixed_uuid: str):
-        """repo_path returns correct path."""
-        expected = sample_task.project_root / ".microvm" / "tasks" / fixed_uuid / "repo"
-        assert sample_task.repo_path == expected
+    def test_isolated_repo_path(self, sample_task: Task, fixed_uuid: str):
+        """isolated_repo_path returns correct path."""
+        expected = sample_task.repo_path / ".microvm" / "tasks" / fixed_uuid / "repo"
+        assert sample_task.isolated_repo_path == expected
 
     def test_log_path(self, sample_task: Task, fixed_uuid: str):
         """log_path returns correct path."""
-        expected = sample_task.project_root / ".microvm" / "tasks" / fixed_uuid / "serial.log"
+        expected = sample_task.repo_path / ".microvm" / "tasks" / fixed_uuid / "serial.log"
         assert sample_task.log_path == expected
 
     def test_result_path(self, sample_task: Task, fixed_uuid: str):
         """result_path returns correct path."""
-        expected = sample_task.project_root / ".microvm" / "tasks" / fixed_uuid / "result.json"
+        expected = sample_task.repo_path / ".microvm" / "tasks" / fixed_uuid / "result.json"
         assert sample_task.result_path == expected
 
     def test_merge_result_path(self, sample_task: Task, fixed_uuid: str):
         """merge_result_path returns correct path."""
-        expected = sample_task.project_root / ".microvm" / "tasks" / fixed_uuid / "merge-result.json"
+        expected = sample_task.repo_path / ".microvm" / "tasks" / fixed_uuid / "merge-result.json"
         assert sample_task.merge_result_path == expected
 
     def test_task_json_path(self, sample_task: Task, fixed_uuid: str):
         """task_json_path returns correct path."""
-        expected = sample_task.project_root / ".microvm" / "tasks" / fixed_uuid / "task.json"
+        expected = sample_task.repo_path / ".microvm" / "tasks" / fixed_uuid / "task.json"
         assert sample_task.task_json_path == expected
 
     def test_api_key_path(self, sample_task: Task, fixed_uuid: str):
         """api_key_path returns correct path."""
-        expected = sample_task.project_root / ".microvm" / "tasks" / fixed_uuid / ".api-key"
+        expected = sample_task.repo_path / ".microvm" / "tasks" / fixed_uuid / ".api-key"
         assert sample_task.api_key_path == expected
 
 

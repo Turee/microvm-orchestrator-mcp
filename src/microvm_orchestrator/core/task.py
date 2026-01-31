@@ -64,7 +64,7 @@ class Task:
     description: str
     status: TaskStatus
     slot: int
-    project_root: Path
+    repo_path: Path
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -81,23 +81,23 @@ class Task:
             object.__setattr__(self, "_lock", threading.Lock())
 
     @classmethod
-    def create(cls, description: str, slot: int, project_root: Path) -> Task:
+    def create(cls, description: str, slot: int, repo_path: Path) -> Task:
         """Create a new task with generated ID."""
         return cls(
             id=str(uuid.uuid4()),
             description=description,
             status=TaskStatus.PENDING,
             slot=slot,
-            project_root=project_root,
+            repo_path=repo_path,
         )
 
     @property
     def task_dir(self) -> Path:
         """Directory containing task files."""
-        return self.project_root / ".microvm" / "tasks" / self.id
+        return self.repo_path / ".microvm" / "tasks" / self.id
 
     @property
-    def repo_path(self) -> Path:
+    def isolated_repo_path(self) -> Path:
         """Path to isolated git repository."""
         return self.task_dir / "repo"
 
@@ -134,7 +134,7 @@ class Task:
             "description": self.description,
             "status": self.status.value,
             "slot": self.slot,
-            "project_root": str(self.project_root),
+            "repo_path": str(self.repo_path),
             "created_at": self.created_at.isoformat(),
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
@@ -154,7 +154,7 @@ class Task:
             description=data["description"],
             status=TaskStatus(data["status"]),
             slot=data["slot"],
-            project_root=Path(data["project_root"]),
+            repo_path=Path(data["repo_path"]),
             created_at=datetime.fromisoformat(data["created_at"]),
             started_at=datetime.fromisoformat(data["started_at"]) if data.get("started_at") else None,
             completed_at=datetime.fromisoformat(data["completed_at"]) if data.get("completed_at") else None,
