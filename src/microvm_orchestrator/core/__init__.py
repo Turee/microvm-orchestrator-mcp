@@ -3,6 +3,7 @@
 from .task import Task, TaskStatus
 from .events import EventQueue, TaskEvent
 from .registry import RepoRegistry, UnknownRepoError, RepoNotGitError, AliasCollisionError
+from .slots import SlotManager, AllSlotsBusyError
 
 __all__ = [
     "Task",
@@ -13,4 +14,6 @@ __all__ = [
     "UnknownRepoError",
     "RepoNotGitError",
     "AliasCollisionError",
+    "SlotManager",
+    "AllSlotsBusyError",
 ]
