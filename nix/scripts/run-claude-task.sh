@@ -305,8 +305,18 @@ fi
 
 cd "$REPO_DIR"
 TASK=\$(cat "/workspace/task.md")
+
+# Try native arch first, fallback to x86_64 if needed (Rosetta translation)
 # Use path:. to avoid git ownership checks (treats as plain directory instead of git repo)
-exec @nix@/bin/nix develop path:. --command @nodejs@/bin/npx -y @anthropic-ai/claude-code@latest --dangerously-skip-permissions --output-format stream-json --verbose -p "\$TASK"
+# First attempt: try native devShell
+if @nix@/bin/nix develop path:. --command true 2>/tmp/nix-develop-test.err; then
+  echo "Using native aarch64-linux devShell" >&2
+  exec @nix@/bin/nix develop path:. --command @nodejs@/bin/npx -y @anthropic-ai/claude-code@latest --dangerously-skip-permissions --output-format stream-json --verbose -p "\$TASK"
+else
+  echo "Native devShell not available (see /tmp/nix-develop-test.err), trying x86_64-linux via Rosetta..." >&2
+  cat /tmp/nix-develop-test.err >&2 || true
+  exec @nix@/bin/nix develop path:.#devShells.x86_64-linux.default --command @nodejs@/bin/npx -y @anthropic-ai/claude-code@latest --dangerously-skip-permissions --output-format stream-json --verbose -p "\$TASK"
+fi
 EOF
 chmod 755 "$WRAPPER"
 

@@ -192,9 +192,18 @@ in
     hypervisor = "vfkit";
     socket = socketPath;
 
+    # Enable Rosetta for x86_64 binary translation (Apple Silicon)
+    vfkit.rosetta = {
+      enable = true;
+      install = false; # Don't auto-install (avoids surprise dialogs)
+    };
+
     # Allocate reasonable resources for Claude Code
     mem = 4096;
     vcpu = 4;
     balloon = false;
   };
+
+  # Enable Rosetta 2 in the VM guest (mounts virtiofs, registers binfmt)
+  virtualisation.rosetta.enable = true;
 }
