@@ -2,20 +2,116 @@
 
 MCP server for orchestrating parallel execution of development tasks in isolated microVM Claude instances.
 
+## Table of Contents
+
+- [Features](#features)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Target Repository Requirements](#target-repository-requirements)
+- [Installation](#installation)
+- [Running the Server](#running-the-server)
+- [MCP Tools Reference](#mcp-tools-reference)
+- [Parallel Execution with Slots](#parallel-execution-with-slots)
+- [File Locations](#file-locations)
+- [Result Formats](#result-formats)
+- [Manual Conflict Resolution](#manual-conflict-resolution)
+- [Troubleshooting](#troubleshooting)
+- [Performance & Limitations](#performance--limitations)
+- [Security Considerations](#security-considerations)
+- [Development](#development)
+- [License](#license)
+
 ## Features
 
-- **Parallel Task Execution**: Run multiple Claude instances in isolated NixOS microvms simultaneously
-- **Smart Dependency Analysis**: Automatically determines which tasks can run in parallel vs. sequentially
-- **Git Isolation**: Each task runs in an isolated git repository to prevent conflicts
+- **Parallel Task Execution**: Run multiple Claude instances in isolated NixOS microVMs simultaneously
+- **Full Agent Autonomy**: Claude runs with `--dangerously-skip-permissions` for unrestricted development
+- **Git Isolation**: Each task runs in an isolated git repository clone to prevent conflicts
 - **Automatic Merging**: Commits are rebased and merged back to your branch after task completion
-- **Conflict Resolution**: Semantic merge when parallel tasks modify the same files
+- **Docker/Podman Support**: Rootless Podman with Docker CLI compatibility inside VMs
+- **Rosetta 2 Support**: Run x86_64 binaries on Apple Silicon via transparent translation
+- **Persistent Storage**: Container images and Nix store cached across tasks via slots
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Host (macOS)                                                │
+│                                                             │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ MCP Server (127.0.0.1:8765)                            │ │
+│  │   • Orchestrator - manages task lifecycle              │ │
+│  │   • Event queue - async completion notifications       │ │
+│  │   • Git isolation - clones repo per task               │ │
+│  └──────────────────────┬─────────────────────────────────┘ │
+│                         │ spawns via nix-build + vfkit      │
+│                         ▼                                   │
+│  ┌──────────────────┐  ┌──────────────────┐                 │
+│  │  MicroVM Slot 1  │  │  MicroVM Slot 2  │  ...            │
+│  │  ┌────────────┐  │  │  ┌────────────┐  │                 │
+│  │  │ NixOS      │  │  │  │ NixOS      │  │                 │
+│  │  │ Claude Code│  │  │  │ Claude Code│  │                 │
+│  │  │ nix develop│  │  │  │ nix develop│  │                 │
+│  │  │ Podman     │  │  │  │ Podman     │  │                 │
+│  │  └────────────┘  │  │  └────────────┘  │                 │
+│  │  --skip-perms    │  │  --skip-perms    │                 │
+│  └──────────────────┘  └──────────────────┘                 │
+│                                                             │
+│  Mounts per VM:                                             │
+│  • /workspace/repo - isolated git clone                     │
+│  • /nix/store (RO) - host Nix store                         │
+│  • /nix/.rw-store - writable overlay (sparse, 30GB max)     │
+│  • /var - persistent slot storage                           │
+│  • /var/lib/containers - Podman image cache                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Task Lifecycle
+
+1. **Create**: `run_task()` clones your repo to `.microvm/tasks/<id>/repo/`
+2. **Boot**: NixOS microVM starts with repo mounted at `/workspace/repo`
+3. **Execute**: `nix develop` loads your flake, then Claude Code runs the task
+4. **Commit**: Claude commits changes to the isolated repo
+5. **Merge**: Orchestrator rebases commits onto your branch automatically
+6. **Cleanup**: VM shuts down, task directory can be removed
 
 ## Prerequisites
 
-- Nix with flakes enabled
-- nix-darwin with Linux builder (for macOS hosts)
-- Git repository (tasks run in isolated git clones)
-- Python 3.13+
+- **macOS on Apple Silicon** (vfkit hypervisor requirement)
+- **Nix with flakes enabled**:
+  ```bash
+  # Verify flakes are enabled
+  nix --version  # Should show 2.4+
+  grep experimental-features ~/.config/nix/nix.conf  # Should include "flakes"
+  ```
+- **nix-darwin with Linux builder** (for building aarch64-linux VMs)
+- **Python 3.13+**
+- **Git repository** (tasks run in isolated clones of your current repo)
+- **Rosetta 2** (optional, for x86_64 binary support):
+  ```bash
+  softwareupdate --install-rosetta
+  ```
+
+## Quick Start
+
+```bash
+# 1. Clone and install
+git clone https://github.com/anthropics/microvm-orchestrator-mcp
+cd microvm-orchestrator-mcp
+uv sync
+
+# 2. Navigate to your project (must have flake.nix)
+cd /path/to/your/project
+
+# 3. Start the MCP server
+python -m microvm_orchestrator
+# Output: Working directory: /path/to/your/project
+
+# 4. Configure Claude Code (see Installation section)
+
+# 5. In Claude Code, use the MCP tools:
+#    "Use run_task to add unit tests for the auth module"
+```
 
 ## Target Repository Requirements
 
@@ -74,9 +170,9 @@ and re-enter the shell with `nix develop`.
 
 ## Installation
 
-```bash
-# Enable the MCP server in Claude Code settings
-# Add to ~/.config/claude-code/mcp.json:
+Add to your Claude Code MCP configuration (`~/.config/claude-code/mcp.json`):
+
+```json
 {
   "microvm": {
     "type": "http",
@@ -88,78 +184,154 @@ and re-enter the shell with `nix develop`.
 ## Running the Server
 
 ```bash
-# Install dependencies
+# Install dependencies (first time)
 uv sync
 
-# Start the MCP server
+# Start the MCP server from your project directory
+cd /path/to/your/project
 python -m microvm_orchestrator
+
+# The server listens on http://127.0.0.1:8765
+# Working directory is printed on startup
 ```
 
-## MCP Tools
+**Note**: The server must be started from within the git repository you want to work on.
 
-| Tool | Description |
-|------|-------------|
-| `run_task` | Start a task in a microVM, returns task_id immediately |
-| `get_task_info` | Get task status, result, and merge result |
-| `get_task_logs` | Get path to serial console log file |
-| `wait_next_event` | Block until a task completes or fails |
-| `cleanup_task` | Remove task directory, optionally delete git ref |
+## MCP Tools Reference
 
-## How It Works
+### run_task
 
-1. **Parse tasks**: Reads task files and identifies individual tasks
-2. **Analyze dependencies**: Task-analyzer agent determines parallel vs sequential execution
-3. **Launch VMs**: Each task runs in an isolated NixOS microvm via MCP `run_task`
-4. **Monitor progress**: Use `get_task_logs` to get log file path, then `tail -f` to stream
-5. **Wait for completion**: `wait_next_event` blocks until tasks finish
-6. **Auto-merge**: Commits from isolated repo are rebased onto your branch
-7. **Resolve conflicts**: If merge fails, commits are preserved at `refs/tasks/<id>`
+Start a new task in an isolated microVM.
 
-## File Locations
+```
+run_task(description: str, slot: int = 1) -> {"task_id": str}
+```
 
-| Path | Description |
-|------|-------------|
-| `.microvm/tasks/<id>/` | Task working directory |
-| `.microvm/tasks/<id>/task.json` | Task metadata |
-| `.microvm/tasks/<id>/task.md` | Original task description |
-| `.microvm/tasks/<id>/repo/` | Isolated git repository |
-| `.microvm/tasks/<id>/serial.log` | VM console output |
-| `.microvm/tasks/<id>/result.json` | Task result |
-| `.microvm/tasks/<id>/merge-result.json` | Merge outcome |
-| `~/.microvm-orchestrator/slots/<N>/` | Persistent slot storage |
+**Parameters:**
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `description` | str | required | Full task instructions for Claude in the VM. Include all context needed. |
+| `slot` | int | 1 | Slot number (1-N) for persistent storage. Use different slots for parallel tasks. |
 
-## Result Format
+**Returns:** `{"task_id": "abc123"}` or `{"error": "message"}`
 
+**Example:**
+```python
+run_task(
+    description="Add unit tests for the auth module. Follow existing test patterns in tests/.",
+    slot=1
+)
+```
+
+**Notes:**
+- If the task involves Docker, include "use --network=host" in the description
+- First run on a new slot takes longer (creates nix store overlay)
+
+---
+
+### get_task_info
+
+Get information about a task including status, result, and merge result.
+
+```
+get_task_info(task_id: str) -> dict
+```
+
+**Returns:**
 ```json
 {
-  "success": true,
-  "summary": "Claude's full explanation of what was done",
-  "files_changed": ["src/auth.ts", "tests/auth.test.ts"],
-  "error": null
+  "status": "completed",
+  "result": {
+    "success": true,
+    "summary": "Added 5 unit tests...",
+    "files_changed": ["tests/auth.test.ts"],
+    "error": null
+  },
+  "merge_result": {
+    "merged": true,
+    "method": "fast-forward",
+    "commits": 2,
+    "conflicts": []
+  },
+  "pid": 12345,
+  "exit_code": 0
 }
 ```
 
-## Merge Result Format
+**Status values:** `pending`, `running`, `completed`, `failed`
 
+---
+
+### get_task_logs
+
+Get path to task's serial console log file.
+
+```
+get_task_logs(task_id: str) -> {"log_path": str}
+```
+
+**Usage:**
+```bash
+# Stream logs in real-time
+tail -f <log_path>
+
+# View full log
+cat <log_path>
+```
+
+---
+
+### wait_next_event
+
+Block until any task completes or fails.
+
+```
+wait_next_event(timeout_ms: int = 30000) -> dict
+```
+
+**Parameters:**
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `timeout_ms` | int | 30000 | Timeout in milliseconds. Use longer values for long-running tasks. |
+
+**Returns:**
 ```json
 {
-  "merged": true,
-  "method": "fast-forward",
-  "commits": 2,
-  "conflicts": []
+  "type": "completed",
+  "task_id": "abc123",
+  "result": { ... },
+  "merge_result": { ... }
 }
 ```
 
-Or if conflicts occurred:
+Or on timeout: `{"timeout": true}`
 
-```json
-{
-  "merged": false,
-  "reason": "conflicts",
-  "conflicts": ["src/shared.ts"],
-  "task_ref": "refs/tasks/<id>"
-}
+**Pattern for multiple tasks:**
+```python
+# Start multiple tasks
+run_task("Task A", slot=1)
+run_task("Task B", slot=2)
+
+# Wait for each to complete
+event1 = wait_next_event(timeout_ms=300000)  # 5 min
+event2 = wait_next_event(timeout_ms=300000)
 ```
+
+---
+
+### cleanup_task
+
+Clean up task directory and optionally delete git ref.
+
+```
+cleanup_task(task_id: str, delete_ref: bool = False) -> {"success": bool}
+```
+
+**Parameters:**
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `task_id` | str | required | Task ID to clean up |
+| `delete_ref` | bool | false | Also delete `refs/tasks/<task_id>` from git |
 
 ## Parallel Execution with Slots
 
@@ -172,7 +344,61 @@ run_task(description="Task B", slot=2)
 run_task(description="Task C", slot=3)
 ```
 
-Slot storage persists across tasks, so container images are cached.
+Slot storage persists across tasks, so container images and Nix packages are cached.
+
+**Slot storage location:** `~/.microvm-orchestrator/slots/<N>/`
+
+## File Locations
+
+| Path | Description |
+|------|-------------|
+| `.microvm/tasks/<id>/` | Task working directory |
+| `.microvm/tasks/<id>/task.json` | Task metadata and state |
+| `.microvm/tasks/<id>/task.md` | Original task description |
+| `.microvm/tasks/<id>/repo/` | Isolated git repository clone |
+| `.microvm/tasks/<id>/serial.log` | VM console output |
+| `.microvm/tasks/<id>/result.json` | Task result from Claude |
+| `.microvm/tasks/<id>/merge-result.json` | Git merge outcome |
+| `.microvm/tasks/<id>/claude-stream.jsonl` | Claude Code JSON output stream |
+| `~/.microvm-orchestrator/slots/<N>/` | Persistent slot storage |
+| `~/.microvm-orchestrator/slots/<N>/var/` | Persistent /var for systemd, logs |
+| `~/.microvm-orchestrator/slots/<N>/container-storage/` | Podman image cache |
+| `~/.microvm-orchestrator/slots/<N>/nix-store.img` | Writable Nix store overlay |
+
+## Result Formats
+
+### Task Result (`result.json`)
+
+```json
+{
+  "success": true,
+  "summary": "Claude's full explanation of what was done",
+  "files_changed": ["src/auth.ts", "tests/auth.test.ts"],
+  "error": null
+}
+```
+
+### Merge Result (`merge-result.json`)
+
+Success:
+```json
+{
+  "merged": true,
+  "method": "fast-forward",
+  "commits": 2,
+  "conflicts": []
+}
+```
+
+Conflict:
+```json
+{
+  "merged": false,
+  "reason": "conflicts",
+  "conflicts": ["src/shared.ts"],
+  "task_ref": "refs/tasks/<id>"
+}
+```
 
 ## Manual Conflict Resolution
 
@@ -194,6 +420,90 @@ git rebase main
 git checkout main
 git merge --ff-only temp
 git branch -d temp
+```
+
+## Troubleshooting
+
+### Common Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "No flake.nix found" | Target repo missing flake | Add `flake.nix` with `devShells.default` |
+| "No API key found" | Missing environment variable | Set `ANTHROPIC_API_KEY` or run `claude /login` |
+| "nix-build failed" | Flake evaluation error | Run `nix flake check` in your repo |
+| "Network is not ready" | VM can't reach internet | Check host network connectivity |
+| Task timeout | Long-running task | Increase `timeout_ms` in `wait_next_event` |
+| "x86_64-linux not supported" | Missing Rosetta | Run `softwareupdate --install-rosetta` |
+
+### Debugging Tips
+
+**Check task state:**
+```bash
+cat .microvm/tasks/<id>/task.json | jq .status
+```
+
+**View Claude's output:**
+```bash
+tail -100 .microvm/tasks/<id>/serial.log
+```
+
+**Stream logs in real-time:**
+```bash
+tail -f .microvm/tasks/<id>/serial.log
+```
+
+**Check task result:**
+```bash
+cat .microvm/tasks/<id>/result.json | jq .
+```
+
+**Check merge result:**
+```bash
+cat .microvm/tasks/<id>/merge-result.json | jq .
+```
+
+**View Claude's stream output:**
+```bash
+cat .microvm/tasks/<id>/claude-stream.jsonl | jq -s .
+```
+
+### VM Boot Issues
+
+- **First boot is slow**: Creating the Nix store overlay (~30GB sparse file) takes time
+- **Rosetta errors**: Install with `softwareupdate --install-rosetta`
+- **Build failures**: Check `nix flake check` on your target repo
+
+## Performance & Limitations
+
+| Metric | Value |
+|--------|-------|
+| First task per slot | 1-2 minutes (creates Nix store overlay) |
+| Subsequent tasks | 30-60 seconds (VM boot + task execution) |
+| Storage per slot | ~2-5 GB actual (30 GB max, sparse file) |
+| VM resources | 4 vCPU, 4 GB RAM (hardcoded) |
+| Platform | macOS Apple Silicon only (vfkit) |
+| Parallel limit | Based on host RAM (4 GB per VM) |
+
+**Note on storage**: The `nix-store.img` is a sparse file - it reports 30GB but only uses actual disk space for data written (~2GB typical).
+
+## Security Considerations
+
+- **Full agent autonomy**: VMs run Claude with `--dangerously-skip-permissions` for unrestricted development
+- **API key handling**: Keys are written to a temp file, read once, then deleted immediately
+- **Network access**: VMs have full internet access for npm, API calls, etc.
+- **Git isolation**: Tasks work on clones, never modifying your original repo directly
+- **Hardware isolation**: Complete VM isolation via vfkit hypervisor
+
+## Development
+
+See [AGENTS.md](AGENTS.md) for development guidelines and contribution information.
+
+```bash
+# Run tests
+uv run pytest
+
+# Run with coverage
+uv run pytest --cov
 ```
 
 ## License
