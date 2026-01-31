@@ -401,7 +401,7 @@ class TestPrepareVMEnv:
                 )
 
         assert env["DELEGATE_TASK_DIR"] == str(sample_task.task_dir)
-        assert env["DELEGATE_GIT_ROOT"] == str(sample_task.repo_path)
+        assert env["DELEGATE_GIT_ROOT"] == str(sample_task.isolated_repo_path)
         assert env["DELEGATE_VAR_DIR"] == str(slot_dir / "var")
         assert env["MICROVM_SLOT"] == str(sample_task.slot)
         assert env["MICROVM_CONTAINER_DIR"] == str(slot_dir / "container-storage")

@@ -142,7 +142,7 @@ class TestEndToEndIntegration:
         4. Clean up the task
         """
         # Create orchestrator with temp project
-        orchestrator = Orchestrator(project_root=e2e_project)
+        orchestrator = Orchestrator(repo_path=e2e_project)
 
         # Start task with slot 99 to avoid conflicts
         result = await orchestrator.run_task(TASK_DESCRIPTION, slot=99)
@@ -245,7 +245,7 @@ class TestEndToEndIntegration:
             )
 
             # Create orchestrator
-            orchestrator = Orchestrator(project_root=project)
+            orchestrator = Orchestrator(repo_path=project)
 
             # Start task with slot 98 to avoid conflicts
             result = await orchestrator.run_task(TASK_DESCRIPTION, slot=98)

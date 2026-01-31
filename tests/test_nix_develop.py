@@ -219,7 +219,7 @@ class TestNixDevelopIntegration:
         3. The version output is captured correctly
         """
         # Create orchestrator with bun flake project
-        orchestrator = Orchestrator(project_root=bun_flake_project)
+        orchestrator = Orchestrator(repo_path=bun_flake_project)
 
         # Start task with slot 97 to avoid conflicts
         result = await orchestrator.run_task(TASK_BUN_VERSION, slot=97)
@@ -284,7 +284,7 @@ class TestNixDevelopIntegration:
         4. The new tool becomes available after modification
         """
         # Create orchestrator with minimal flake project
-        orchestrator = Orchestrator(project_root=minimal_flake_project)
+        orchestrator = Orchestrator(repo_path=minimal_flake_project)
 
         # Start task with slot 96 to avoid conflicts
         result = await orchestrator.run_task(TASK_ADD_COWSAY, slot=96)

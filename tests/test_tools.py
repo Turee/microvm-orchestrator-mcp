@@ -36,7 +36,7 @@ class TestRunTask:
     async def test_run_task_detects_git_root(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mock_orchestrator_deps
     ):
-        """run_task finds .git directory when project_root not specified."""
+        """run_task finds .git directory when repo_path not specified."""
         # Create nested structure with .git at root
         git_root = tmp_path / "repo"
         subdir = git_root / "src" / "deep"
@@ -48,9 +48,9 @@ class TestRunTask:
         monkeypatch.chdir(subdir)
 
         with patch.object(Orchestrator, "_get_plugin_dir", return_value=git_root):
-            orch = Orchestrator()  # No project_root - should detect
+            orch = Orchestrator()  # No repo_path - should detect
 
-        assert orch.project_root == git_root
+        assert orch.repo_path == git_root
 
     async def test_run_task_api_key_from_env(
         self, orchestrator: Orchestrator, mock_orchestrator_deps, monkeypatch: pytest.MonkeyPatch
@@ -200,7 +200,7 @@ class TestCleanupTask:
         await orchestrator.cleanup_task(task_id, delete_ref=True)
 
         mock_orchestrator_deps["cleanup_ref"].assert_called_once_with(
-            orchestrator.project_root, task_id
+            orchestrator.repo_path, task_id
         )
 
 
@@ -299,7 +299,7 @@ class TestEdgeCases:
         (tmp_project / "default.nix").write_text("{}")
 
         with patch.object(Orchestrator, "_get_plugin_dir", return_value=tmp_project):
-            orch = Orchestrator(project_root=tmp_project)
+            orch = Orchestrator(repo_path=tmp_project)
 
         # Mock keychain to also fail
         with patch("subprocess.run", side_effect=Exception("No keychain")):
@@ -324,7 +324,7 @@ class TestEdgeCases:
             "description": "Loaded from disk",
             "status": "completed",
             "slot": 1,
-            "project_root": str(tmp_project),
+            "repo_path": str(tmp_project),
             "created_at": "2024-01-15T12:00:00+00:00",
         }
         (task_dir / "task.json").write_text(json.dumps(task_json))
@@ -346,7 +346,7 @@ class TestEdgeCases:
                 "description": f"Task {i}",
                 "status": "completed",
                 "slot": i,
-                "project_root": str(tmp_project),
+                "repo_path": str(tmp_project),
                 "created_at": "2024-01-15T12:00:00+00:00",
             }))
 
