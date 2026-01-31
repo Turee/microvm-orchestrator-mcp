@@ -82,7 +82,7 @@ MCP server for orchestrating parallel execution of development tasks in isolated
   ```bash
   # Verify flakes are enabled
   nix --version  # Should show 2.4+
-  grep experimental-features ~/.config/nix/nix.conf  # Should include "flakes"
+  grep experimental-features ~/.config/nix-darwin/nix.conf  # Should include "flakes"
   ```
 - **nix-darwin with Linux builder** (for building aarch64-linux VMs)
 - **Python 3.13+**
