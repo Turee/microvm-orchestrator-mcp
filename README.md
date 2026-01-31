@@ -95,23 +95,20 @@ MCP server for orchestrating parallel execution of development tasks in isolated
 ## Quick Start
 
 ```bash
-# 1. Clone and install
-git clone https://github.com/anthropics/microvm-orchestrator-mcp
-cd microvm-orchestrator-mcp
-uv sync
-
-# 2. Navigate to your project (must have flake.nix)
+# 1. Navigate to your project (must have flake.nix and be a git repo)
 cd /path/to/your/project
 
-# 3. Start the MCP server
-python -m microvm_orchestrator
+# 2. Start the MCP server using uvx (no installation needed)
+uvx --from git+https://github.com/anthropics/microvm-orchestrator-mcp microvm-orchestrator-mcp
 # Output: Working directory: /path/to/your/project
 
-# 4. Configure Claude Code (see Installation section)
+# 3. Configure Claude Code (see Installation section)
 
-# 5. In Claude Code, use the MCP tools:
+# 4. In Claude Code, use the MCP tools:
 #    "Use run_task to add unit tests for the auth module"
 ```
+
+**Important**: The MCP server must be started from within the git repository you want to work on. The server uses the current working directory to determine the target project.
 
 ## Target Repository Requirements
 
@@ -181,21 +178,29 @@ Add to your Claude Code MCP configuration (`~/.config/claude-code/mcp.json`):
 }
 ```
 
+The server uses HTTP transport (not stdio) so you can cancel MCP queries without restarting the server - important for long-running VM tasks.
+
 ## Running the Server
 
+**Using uvx (recommended, no installation needed):**
 ```bash
-# Install dependencies (first time)
-uv sync
-
-# Start the MCP server from your project directory
 cd /path/to/your/project
-python -m microvm_orchestrator
-
-# The server listens on http://127.0.0.1:8765
-# Working directory is printed on startup
+uvx --from git+https://github.com/anthropics/microvm-orchestrator-mcp microvm-orchestrator-mcp
 ```
 
-**Note**: The server must be started from within the git repository you want to work on.
+**From source:**
+```bash
+git clone https://github.com/anthropics/microvm-orchestrator-mcp
+cd microvm-orchestrator-mcp
+uv sync
+
+cd /path/to/your/project
+python -m microvm_orchestrator
+```
+
+The server listens on `http://127.0.0.1:8765` and prints the working directory on startup.
+
+**Important**: The server must be started from within the git repository you want to work on.
 
 ## MCP Tools Reference
 

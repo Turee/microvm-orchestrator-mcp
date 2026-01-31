@@ -43,15 +43,26 @@ class Orchestrator:
         raise ToolError("Not in a git repository")
 
     def _get_plugin_dir(self) -> Path:
-        """Get the plugin directory containing default.nix."""
-        # Plugin structure: src/microvm_orchestrator/tools.py -> plugin root
+        """Get the directory containing nix build files."""
+        import importlib.resources
+
+        # When installed as a package, nix files are in package data
+        try:
+            pkg_nix_dir = importlib.resources.files("microvm_orchestrator") / "nix"
+            if pkg_nix_dir.joinpath("default.nix").is_file():
+                return Path(str(pkg_nix_dir))
+        except (TypeError, FileNotFoundError):
+            pass
+
+        # Fallback for development: source layout
         plugin_dir = Path(__file__).parent.parent.parent
-        if not (plugin_dir / "default.nix").exists():
-            raise ToolError(
-                "Plugin default.nix not found. "
-                "Plugin installation may be corrupted."
-            )
-        return plugin_dir
+        if (plugin_dir / "default.nix").exists():
+            return plugin_dir
+
+        raise ToolError(
+            "Plugin nix files not found. "
+            "Ensure the package is installed correctly."
+        )
 
     def _get_api_key(self) -> str:
         """Get API key from environment or keychain."""

@@ -20,6 +20,7 @@ from microvm_orchestrator.core.vm import (
     find_runner,
     patch_runner_for_logfile,
     get_slot_dir,
+    get_nix_cache_dir,
     ensure_slot_initialized,
     prepare_vm_env,
     write_task_files,
@@ -67,7 +68,8 @@ class TestBuildVM:
             cmd = call_args[0][0]
 
             assert cmd[0] == "nix-build"
-            assert "default.nix" in cmd
+            # Path is now absolute
+            assert str(nix_dir / "default.nix") in cmd
             assert "-A" in cmd
             assert "claude-microvm" in cmd
             assert "--argstr" in cmd
@@ -75,6 +77,9 @@ class TestBuildVM:
             assert "/tmp/task" in cmd
             assert "nixStoreImage" in cmd
             assert "/tmp/nix-store.img" in cmd
+            # Result symlink is in writable cache directory
+            cmd_str = " ".join(cmd)
+            assert ".microvm-orchestrator/nix-cache/result-mcp-1" in cmd_str
 
     def test_build_vm_failure(self, tmp_path: Path):
         """nix-build failure raises RuntimeError."""
@@ -92,13 +97,9 @@ class TestBuildVM:
                 build_vm(nix_dir=nix_dir, env={}, slot=1)
 
     def test_build_vm_returns_result_symlink(self, tmp_path: Path):
-        """Falls back to result symlink when stdout path doesn't exist."""
+        """Falls back to result symlink in cache when stdout path doesn't exist."""
         nix_dir = tmp_path / "nix"
         nix_dir.mkdir()
-
-        # Create result symlink
-        result_link = nix_dir / "result-mcp-1"
-        result_link.symlink_to("/nix/store/real-path")
 
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
@@ -109,7 +110,9 @@ class TestBuildVM:
 
             result = build_vm(nix_dir=nix_dir, env={}, slot=1)
 
-            assert result == result_link
+            # Result symlink is now in the cache directory
+            expected_link = get_nix_cache_dir() / "result-mcp-1"
+            assert result == expected_link
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,9 @@ dependencies = [
     "mcp>=1.0.0",
 ]
 
+[project.scripts]
+microvm-orchestrator-mcp = "microvm_orchestrator:run"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
@@ -20,6 +23,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/microvm_orchestrator"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"default.nix" = "microvm_orchestrator/nix/default.nix"
+"nix/vm-config.nix" = "microvm_orchestrator/nix/vm-config.nix"
 
 [dependency-groups]
 dev = [

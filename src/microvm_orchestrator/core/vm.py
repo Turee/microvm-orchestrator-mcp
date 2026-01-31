@@ -28,6 +28,13 @@ class VMConfig:
             self.env = {}
 
 
+def get_nix_cache_dir() -> Path:
+    """Get writable directory for nix build symlinks."""
+    cache_dir = Path.home() / ".microvm-orchestrator" / "nix-cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
 def build_vm(
     nix_dir: Path,
     package_name: str = "claude-microvm",
@@ -39,15 +46,22 @@ def build_vm(
 
     Uses --argstr to pass configuration, avoiding flake locks and --impure.
     Each slot gets its own result symlink to enable parallel builds.
+    Result symlinks are placed in a writable cache directory to support
+    installation via uvx where the package directory may be read-only.
     """
     env = env or {}
 
+    # Use writable cache directory for result symlinks
+    cache_dir = get_nix_cache_dir()
+    result_link = cache_dir / f"result-mcp-{slot}"
+
     # Build nix-build command with --argstr for each configuration option
+    # Use absolute paths so we don't need cwd
     cmd = [
         "nix-build",
-        "default.nix",
+        str(nix_dir / "default.nix"),
         "-A", package_name,
-        "-o", f"result-mcp-{slot}",
+        "-o", str(result_link),
     ]
 
     # Map environment variables to nix-build --argstr arguments
@@ -66,7 +80,6 @@ def build_vm(
 
     result = subprocess.run(
         cmd,
-        cwd=nix_dir,
         capture_output=True,
         text=True,
     )
@@ -80,7 +93,7 @@ def build_vm(
         return Path(store_path)
 
     # Fall back to result symlink
-    return nix_dir / f"result-mcp-{slot}"
+    return result_link
 
 
 async def build_vm_async(
