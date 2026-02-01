@@ -28,7 +28,7 @@ def get_orchestrator() -> Orchestrator:
 
 
 @mcp.tool()
-async def run_task(description: str, slot: int = 1) -> dict:
+async def run_task(description: str, repo: str) -> dict:
     """Start a new task in an isolated microVM.
 
     Args:
@@ -36,15 +36,15 @@ async def run_task(description: str, slot: int = 1) -> dict:
             If the task involves running Docker containers, include
             instructions to use --network=host (required for networking
             to work correctly inside the microVM).
-        slot: Slot number for persistent storage (1-N). Different slots
-            for parallel tasks.
+        repo: Repository alias (registered via CLI). Use list_repos() to see
+            available repositories. The alias is the repository name, not the path.
 
     Returns:
         {"task_id": str}
     """
     try:
         orchestrator = get_orchestrator()
-        return await orchestrator.run_task(description, slot)
+        return await orchestrator.run_task(description, repo)
     except ToolError as e:
         return {"error": str(e)}
     except Exception as e:
@@ -128,6 +128,57 @@ async def cleanup_task(task_id: str, delete_ref: bool = False) -> dict:
         return await orchestrator.cleanup_task(task_id, delete_ref)
     except ToolError as e:
         return {"error": str(e)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@mcp.tool()
+async def list_repos() -> dict:
+    """List registered repositories that can be used with run_task.
+
+    Returns:
+        {"repos": [{"alias": str, "path": str, "added": str}, ...]}
+    """
+    try:
+        orchestrator = get_orchestrator()
+        repos_dict = orchestrator.registry.list()
+        repos = [
+            {
+                "alias": alias,
+                "path": info["path"],
+                "added": info["added"],
+            }
+            for alias, info in repos_dict.items()
+        ]
+        return {"repos": repos}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@mcp.tool()
+async def list_slots() -> dict:
+    """Show slot status and availability for debugging.
+
+    Returns:
+        {
+            "max_slots": int,
+            "active": [{"slot": int, "task_id": str}, ...],
+            "available": [int, ...]
+        }
+    """
+    try:
+        orchestrator = get_orchestrator()
+        active_tasks = orchestrator.slot_manager.get_active_tasks()
+        available_slots = orchestrator.slot_manager.get_available_slots()
+
+        return {
+            "max_slots": orchestrator.slot_manager.max_slots,
+            "active": [
+                {"slot": slot, "task_id": task_id}
+                for slot, task_id in active_tasks.items()
+            ],
+            "available": available_slots,
+        }
     except Exception as e:
         return {"error": str(e)}
 

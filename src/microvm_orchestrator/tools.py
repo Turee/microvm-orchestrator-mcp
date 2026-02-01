@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import shutil
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
@@ -13,6 +14,8 @@ from .core.task import Task, TaskStatus
 from .core.events import EventQueue, EventType
 from .core.git import setup_isolated_repo, setup_isolated_repo_async, merge_task_commits, cleanup_task_ref
 from .core.vm import VMConfig, VMProcess, prepare_vm_env, write_task_files
+from .core.registry import RepoRegistry, UnknownRepoError
+from .core.slots import SlotManager, AllSlotsBusyError
 
 
 class ToolError(Exception):
@@ -28,7 +31,11 @@ class Orchestrator:
     """
 
     def __init__(self, repo_path: Optional[Path] = None):
-        self.repo_path = repo_path or self._detect_repo_path()
+        # Legacy support: repo_path is deprecated, kept for backward compatibility
+        # New model: repos are resolved via RepoRegistry from aliases
+        self.repo_path = repo_path  # Will be None in single-instance mode
+        self.registry = RepoRegistry()
+        self.slot_manager = SlotManager()
         self.event_queue = EventQueue()
         self._processes: dict[str, VMProcess] = {}
         self._tasks: dict[str, Task] = {}
@@ -122,6 +129,9 @@ class Orchestrator:
         # Update task status
         task.mark_completed(exit_code)
 
+        # Release slot
+        self.slot_manager.release_slot(task.slot)
+
         # Emit event
         event = self.event_queue.create_completed_event(
             task_id=task.id,
@@ -135,7 +145,7 @@ class Orchestrator:
         self._processes.pop(task.id, None)
 
     # Tool: run_task
-    async def run_task(self, description: str, slot: int = 1) -> dict[str, Any]:
+    async def run_task(self, description: str, repo: str) -> dict[str, Any]:
         """
         Start a new task in a microVM.
 
@@ -147,7 +157,8 @@ class Orchestrator:
                 If the task involves running Docker containers, include
                 instructions to use --network=host (required for networking
                 to work correctly inside the microVM).
-            slot: Slot number for persistent storage (default 1)
+            repo: Repository alias (registered via CLI 'allow' command).
+                Use the repository name, not the path.
 
         Returns:
             {"task_id": str}
@@ -156,19 +167,40 @@ class Orchestrator:
         plugin_dir = self._get_plugin_dir()
         api_key = self._get_api_key()
 
-        # Create task
+        try:
+            # Resolve repo alias to path (validates against allowlist)
+            repo_path = self.registry.resolve(repo)
+        except UnknownRepoError as e:
+            raise ToolError(str(e))
+
+        # Create task (slot will be assigned automatically)
+        task_id = str(uuid.uuid4())
+
+        try:
+            # Acquire slot with repo affinity
+            slot = self.slot_manager.acquire_slot(repo_path, task_id)
+        except AllSlotsBusyError as e:
+            active_tasks = self.slot_manager.get_active_tasks()
+            raise ToolError(
+                f"All {e.max_slots} slots are busy. "
+                f"Active tasks: {list(active_tasks.values())}"
+            )
+
+        # Create task with assigned slot
         task = Task.create(
             description=description,
             slot=slot,
-            repo_path=self.repo_path,
+            repo_path=repo_path,
         )
+        # Override the auto-generated ID to use the one we already registered with SlotManager
+        task.id = task_id
         task.save()
         self._tasks[task.id] = task
 
         try:
             # Setup isolated git repo (async to avoid blocking on git operations)
             start_ref = await setup_isolated_repo_async(
-                original_repo=self.repo_path,
+                original_repo=repo_path,
                 task_repo=task.isolated_repo_path,
                 task_id=task.id,
             )
@@ -200,6 +232,8 @@ class Orchestrator:
             return {"task_id": task.id}
 
         except Exception as e:
+            # Release slot on failure
+            self.slot_manager.release_slot(slot)
             task.mark_failed(str(e))
             event = self.event_queue.create_failed_event(task.id, str(e))
             self.event_queue.emit(event)
@@ -342,32 +376,40 @@ class Orchestrator:
         if task_id in self._tasks:
             return self._tasks[task_id]
 
-        # Try to load from disk
-        task_dir = self.repo_path / ".microvm" / "tasks" / task_id
-        if not task_dir.exists():
-            raise ToolError(f"Task not found: {task_id}")
+        # In single-instance mode, we need to search all registered repos for the task
+        # Try all registered repos to find the task
+        for alias, info in self.registry.list().items():
+            repo_path = Path(info["path"])
+            task_dir = repo_path / ".microvm" / "tasks" / task_id
+            if task_dir.exists():
+                task = Task.load(task_dir)
+                self._tasks[task_id] = task
+                return task
 
-        task = Task.load(task_dir)
-        self._tasks[task_id] = task
-        return task
+        raise ToolError(f"Task not found: {task_id}")
 
     def list_tasks(self) -> list[dict[str, Any]]:
-        """List all tasks (for debugging)."""
-        tasks_dir = self.repo_path / ".microvm" / "tasks"
-        if not tasks_dir.exists():
-            return []
-
+        """List all tasks across all registered repos (for debugging)."""
         tasks = []
-        for task_dir in tasks_dir.iterdir():
-            if task_dir.is_dir() and (task_dir / "task.json").exists():
-                try:
-                    task = Task.load(task_dir)
-                    tasks.append({
-                        "task_id": task.id,
-                        "status": task.status.value,
-                        "description": task.description[:50] + "..." if len(task.description) > 50 else task.description,
-                    })
-                except Exception:
-                    pass
+
+        # Iterate through all registered repos
+        for alias, info in self.registry.list().items():
+            repo_path = Path(info["path"])
+            tasks_dir = repo_path / ".microvm" / "tasks"
+            if not tasks_dir.exists():
+                continue
+
+            for task_dir in tasks_dir.iterdir():
+                if task_dir.is_dir() and (task_dir / "task.json").exists():
+                    try:
+                        task = Task.load(task_dir)
+                        tasks.append({
+                            "task_id": task.id,
+                            "status": task.status.value,
+                            "description": task.description[:50] + "..." if len(task.description) > 50 else task.description,
+                            "repo": alias,
+                        })
+                    except Exception:
+                        pass
 
         return tasks
