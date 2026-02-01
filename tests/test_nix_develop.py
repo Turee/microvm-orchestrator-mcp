@@ -218,11 +218,12 @@ class TestNixDevelopIntegration:
         2. Claude can run bun --version successfully
         3. The version output is captured correctly
         """
-        # Create orchestrator with bun flake project
+        # Create orchestrator and register project
         orchestrator = Orchestrator(repo_path=bun_flake_project)
+        orchestrator.registry.allow(bun_flake_project, alias="bun-test")
 
-        # Start task with slot 97 to avoid conflicts
-        result = await orchestrator.run_task(TASK_BUN_VERSION, slot=97)
+        # Start task using repo alias (slot assigned automatically)
+        result = await orchestrator.run_task(TASK_BUN_VERSION, repo="bun-test")
         task_id = result["task_id"]
 
         try:
@@ -283,11 +284,12 @@ class TestNixDevelopIntegration:
         3. The writable Nix store allows rebuilding the environment
         4. The new tool becomes available after modification
         """
-        # Create orchestrator with minimal flake project
+        # Create orchestrator and register project
         orchestrator = Orchestrator(repo_path=minimal_flake_project)
+        orchestrator.registry.allow(minimal_flake_project, alias="cowsay-test")
 
-        # Start task with slot 96 to avoid conflicts
-        result = await orchestrator.run_task(TASK_ADD_COWSAY, slot=96)
+        # Start task using repo alias (slot assigned automatically)
+        result = await orchestrator.run_task(TASK_ADD_COWSAY, repo="cowsay-test")
         task_id = result["task_id"]
 
         try:

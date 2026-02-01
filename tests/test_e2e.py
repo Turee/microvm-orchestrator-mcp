@@ -143,9 +143,11 @@ class TestEndToEndIntegration:
         """
         # Create orchestrator with temp project
         orchestrator = Orchestrator(repo_path=e2e_project)
+        # Register the project so we can use repo alias
+        orchestrator.registry.allow(e2e_project, alias="e2e-test")
 
-        # Start task with slot 99 to avoid conflicts
-        result = await orchestrator.run_task(TASK_DESCRIPTION, slot=99)
+        # Start task using repo alias (slot assigned automatically)
+        result = await orchestrator.run_task(TASK_DESCRIPTION, repo="e2e-test")
         task_id = result["task_id"]
 
         try:
@@ -244,11 +246,12 @@ class TestEndToEndIntegration:
                 capture_output=True,
             )
 
-            # Create orchestrator
+            # Create orchestrator and register project
             orchestrator = Orchestrator(repo_path=project)
+            orchestrator.registry.allow(project, alias="x86-test")
 
-            # Start task with slot 98 to avoid conflicts
-            result = await orchestrator.run_task(TASK_DESCRIPTION, slot=98)
+            # Start task using repo alias (slot assigned automatically)
+            result = await orchestrator.run_task(TASK_DESCRIPTION, repo="x86-test")
             task_id = result["task_id"]
 
             try:

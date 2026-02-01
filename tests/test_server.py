@@ -37,10 +37,10 @@ class TestRunTask:
         )
 
         with patch("microvm_orchestrator.server.get_orchestrator", return_value=mock_orchestrator):
-            result = await run_task("Test description", slot=1)
+            result = await run_task("Test description", repo="my-project")
 
         assert result == {"task_id": "abc123-task-id"}
-        mock_orchestrator.run_task.assert_called_once_with("Test description", 1)
+        mock_orchestrator.run_task.assert_called_once_with("Test description", "my-project")
 
     async def test_run_task_error_format(self):
         """run_task returns {"error": str} on ToolError."""
@@ -50,7 +50,7 @@ class TestRunTask:
         )
 
         with patch("microvm_orchestrator.server.get_orchestrator", return_value=mock_orchestrator):
-            result = await run_task("Test description", slot=1)
+            result = await run_task("Test description", repo="my-project")
 
         assert result == {"error": "Failed to start task"}
 
@@ -62,7 +62,7 @@ class TestRunTask:
         )
 
         with patch("microvm_orchestrator.server.get_orchestrator", return_value=mock_orchestrator):
-            result = await run_task("Test description", slot=1)
+            result = await run_task("Test description", repo="my-project")
 
         assert result == {"error": "Unexpected error"}
 
