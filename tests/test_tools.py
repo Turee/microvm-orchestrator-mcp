@@ -25,7 +25,7 @@ class TestRunTask:
         self, orchestrator: Orchestrator, mock_orchestrator_deps
     ):
         """run_task returns task_id and creates Task in RUNNING state."""
-        result = await orchestrator.run_task("Test description", slot=1)
+        result = await orchestrator.run_task("Test description", repo="project")
 
         assert "task_id" in result
         task_id = result["task_id"]
@@ -33,32 +33,22 @@ class TestRunTask:
         assert task_id in orchestrator._tasks
         assert task_id in orchestrator._processes
 
-    async def test_run_task_detects_git_root(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mock_orchestrator_deps
+    async def test_run_task_unknown_repo_raises(
+        self, orchestrator: Orchestrator, mock_orchestrator_deps
     ):
-        """run_task finds .git directory when repo_path not specified."""
-        # Create nested structure with .git at root
-        git_root = tmp_path / "repo"
-        subdir = git_root / "src" / "deep"
-        subdir.mkdir(parents=True)
-        (git_root / ".git").mkdir()
-        (git_root / "default.nix").write_text("{}")
-
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-        monkeypatch.chdir(subdir)
-
-        with patch.object(Orchestrator, "_get_plugin_dir", return_value=git_root):
-            orch = Orchestrator()  # No repo_path - should detect
-
-        assert orch.repo_path == git_root
+        """run_task raises ToolError for unknown repo alias."""
+        with pytest.raises(ToolError, match="not registered"):
+            await orchestrator.run_task("Test", repo="unknown-repo")
 
     async def test_run_task_api_key_from_env(
         self, orchestrator: Orchestrator, mock_orchestrator_deps, monkeypatch: pytest.MonkeyPatch
     ):
         """run_task uses ANTHROPIC_API_KEY from environment."""
+        # Clear any existing API keys and set only the one we want
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
         monkeypatch.setenv("ANTHROPIC_API_KEY", "env-api-key")
 
-        await orchestrator.run_task("Test", slot=1)
+        await orchestrator.run_task("Test", repo="project")
 
         # Verify write_task_files was called with the api key
         mock_orchestrator_deps["write_files"].assert_called()
@@ -72,7 +62,7 @@ class TestRunTask:
         mock_orchestrator_deps["setup_repo"].side_effect = RuntimeError("Git error")
 
         with pytest.raises(ToolError, match="Failed to start task"):
-            await orchestrator.run_task("Test", slot=1)
+            await orchestrator.run_task("Test", repo="project")
 
         # Should have emitted a failed event
         event = orchestrator.event_queue._try_pop()
@@ -93,7 +83,7 @@ class TestGetTaskInfo:
         self, orchestrator: Orchestrator, mock_orchestrator_deps
     ):
         """get_task_info returns 'running' status while VM active."""
-        result = await orchestrator.run_task("Test", slot=1)
+        result = await orchestrator.run_task("Test", repo="project")
         task_id = result["task_id"]
 
         info = orchestrator.get_task_info(task_id)
@@ -107,7 +97,7 @@ class TestGetTaskInfo:
     ):
         """get_task_info includes result.json for completed task."""
         # Start task then simulate completion
-        result = await orchestrator.run_task("Test", slot=1)
+        result = await orchestrator.run_task("Test", repo="project")
         task_id = result["task_id"]
 
         # Remove from processes (simulates VM exit)
@@ -137,7 +127,7 @@ class TestWaitNextEvent:
         self, orchestrator: Orchestrator, mock_orchestrator_deps
     ):
         """wait_next_event returns event when one is emitted."""
-        result = await orchestrator.run_task("Test", slot=1)
+        result = await orchestrator.run_task("Test", repo="project")
         task_id = result["task_id"]
 
         # Emit an event
@@ -173,7 +163,7 @@ class TestCleanupTask:
         self, orchestrator: Orchestrator, mock_orchestrator_deps
     ):
         """cleanup_task deletes task directory."""
-        result = await orchestrator.run_task("Test", slot=1)
+        result = await orchestrator.run_task("Test", repo="project")
         task_id = result["task_id"]
         task = orchestrator._tasks[task_id]
 
@@ -192,15 +182,16 @@ class TestCleanupTask:
         self, orchestrator: Orchestrator, mock_orchestrator_deps
     ):
         """cleanup_task removes git ref when delete_ref=True."""
-        result = await orchestrator.run_task("Test", slot=1)
+        result = await orchestrator.run_task("Test", repo="project")
         task_id = result["task_id"]
         task = orchestrator._tasks[task_id]
         task.task_dir.mkdir(parents=True, exist_ok=True)
 
         await orchestrator.cleanup_task(task_id, delete_ref=True)
 
+        # Task's repo_path is used for cleanup, not orchestrator.repo_path
         mock_orchestrator_deps["cleanup_ref"].assert_called_once_with(
-            orchestrator.repo_path, task_id
+            task.repo_path, task_id
         )
 
 
@@ -215,10 +206,11 @@ class TestConcurrentTasks:
     async def test_concurrent_tasks(
         self, orchestrator: Orchestrator, mock_orchestrator_deps
     ):
-        """Multiple tasks can run in different slots."""
-        result1 = await orchestrator.run_task("Task 1", slot=1)
-        result2 = await orchestrator.run_task("Task 2", slot=2)
-        result3 = await orchestrator.run_task("Task 3", slot=3)
+        """Multiple tasks can run and get assigned different slots automatically."""
+        # All tasks use the same repo - slots are assigned automatically by SlotManager
+        result1 = await orchestrator.run_task("Task 1", repo="project")
+        result2 = await orchestrator.run_task("Task 2", repo="project")
+        result3 = await orchestrator.run_task("Task 3", repo="project")
 
         assert result1["task_id"] != result2["task_id"] != result3["task_id"]
         assert len(orchestrator._processes) == 3
@@ -228,14 +220,14 @@ class TestConcurrentTasks:
         assert result2["task_id"] in orchestrator._tasks
         assert result3["task_id"] in orchestrator._tasks
 
-        # Get info for each
+        # Get info for each - slots are assigned automatically (first gets affinity slot, rest get free slots)
         info1 = orchestrator.get_task_info(result1["task_id"])
         info2 = orchestrator.get_task_info(result2["task_id"])
         info3 = orchestrator.get_task_info(result3["task_id"])
 
-        assert info1["slot"] == 1
-        assert info2["slot"] == 2
-        assert info3["slot"] == 3
+        # All slots should be different (automatically assigned)
+        slots = {info1["slot"], info2["slot"], info3["slot"]}
+        assert len(slots) == 3
 
 
 # =============================================================================
@@ -300,11 +292,12 @@ class TestEdgeCases:
 
         with patch.object(Orchestrator, "_get_plugin_dir", return_value=tmp_project):
             orch = Orchestrator(repo_path=tmp_project)
+            orch.registry.allow(tmp_project, alias="test-project")
 
         # Mock keychain to also fail
         with patch("subprocess.run", side_effect=Exception("No keychain")):
             with pytest.raises(ToolError, match="No API key found"):
-                await orch.run_task("Test", slot=1)
+                await orch.run_task("Test", repo="test-project")
 
     def test_get_task_info_not_found(self, orchestrator: Orchestrator):
         """get_task_info raises ToolError for unknown task."""
@@ -315,6 +308,7 @@ class TestEdgeCases:
         self, orchestrator: Orchestrator, tmp_project: Path
     ):
         """get_task_info loads task from disk if not in memory."""
+        # tmp_project is already registered as "project" via the orchestrator fixture
         # Create task on disk
         task_id = "disk-task-123"
         task_dir = tmp_project / ".microvm" / "tasks" / task_id
@@ -337,6 +331,7 @@ class TestEdgeCases:
 
     def test_list_tasks(self, orchestrator: Orchestrator, tmp_project: Path):
         """list_tasks returns all tasks from disk."""
+        # tmp_project is already registered as "project" via the orchestrator fixture
         # Create multiple tasks on disk
         for i in range(3):
             task_dir = tmp_project / ".microvm" / "tasks" / f"task-{i}"

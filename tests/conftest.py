@@ -344,13 +344,30 @@ def mock_orchestrator_deps():
 
 
 @pytest.fixture
-def orchestrator(tmp_project: Path, monkeypatch: pytest.MonkeyPatch):
-    """Create Orchestrator with mocked plugin dir."""
+def orchestrator(tmp_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Create Orchestrator with mocked plugin dir and registered test repo.
+
+    Uses isolated temp paths for registry and slot assignments to prevent
+    test interference.
+    """
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-api-key")
     (tmp_project / "default.nix").write_text("{}")
 
+    # Use temp paths for registry and slot assignments (isolated per test)
+    from microvm_orchestrator.core.registry import RepoRegistry
+    from microvm_orchestrator.core.slots import SlotManager
+
+    registry_path = tmp_path / "allowed-repos.json"
+    slots_path = tmp_path / "slot-assignments.json"
+
     with patch.object(Orchestrator, "_get_plugin_dir", return_value=tmp_project):
-        return Orchestrator(repo_path=tmp_project)
+        orch = Orchestrator(repo_path=tmp_project)
+        # Replace with isolated registry and slot manager
+        orch.registry = RepoRegistry(registry_path=registry_path)
+        orch.slot_manager = SlotManager(assignments_path=slots_path)
+        # Register the tmp_project so tests can use run_task(desc, repo="project")
+        orch.registry.allow(tmp_project, alias="project")
+        return orch
 
 
 # =============================================================================
