@@ -327,7 +327,7 @@ class Orchestrator:
     # Tool: wait_next_event
     async def wait_next_event(
         self,
-        timeout_ms: int = 30000,
+        timeout_ms: int = 1_800_000,
     ) -> dict[str, Any]:
         """
         Wait for the next task completion event.
@@ -335,7 +335,7 @@ class Orchestrator:
         This is an async operation that can be cancelled by asyncio.
 
         Args:
-            timeout_ms: Timeout in milliseconds (default 30000)
+            timeout_ms: Timeout in milliseconds (default 1800000)
 
         Returns:
             Event information, {"no_running_tasks": true}, or {"timeout": true}

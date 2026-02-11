@@ -349,13 +349,13 @@ cat <log_path>
 Block until any task completes or fails.
 
 ```
-wait_next_event(timeout_ms: int = 30000) -> dict
+wait_next_event(timeout_ms: int = 1800000) -> dict
 ```
 
 **Parameters:**
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `timeout_ms` | int | 30000 | Timeout in milliseconds. Use longer values for long-running tasks. |
+| `timeout_ms` | int | 1800000 | Timeout in milliseconds (30 minutes). Use longer values for long-running tasks. |
 
 **Returns:**
 ```json

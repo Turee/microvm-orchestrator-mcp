@@ -90,7 +90,7 @@ async def get_task_logs(task_id: str) -> dict:
 
 
 @mcp.tool()
-async def wait_next_event(timeout_ms: int = 30000) -> dict:
+async def wait_next_event(timeout_ms: int = 1_800_000) -> dict:
     """Block until any task completes or fails. Returns event with result and merge info. Use long timeout for long-running tasks.
 
     This is an async operation that can be cancelled.
