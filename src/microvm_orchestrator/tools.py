@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shutil
 import uuid
 from pathlib import Path
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 from .core.task import Task, TaskStatus
 from .core.events import EventQueue, EventType
@@ -39,6 +42,22 @@ class Orchestrator:
         self.event_queue = EventQueue()
         self._processes: dict[str, VMProcess] = {}
         self._tasks: dict[str, Task] = {}
+        self._cleanup_stale_tasks()
+
+    def _cleanup_stale_tasks(self) -> None:
+        """Remove task directories left over from previous sessions."""
+        for _alias, info in self.registry.list().items():
+            tasks_dir = Path(info["path"]) / ".microvm" / "tasks"
+            if not tasks_dir.exists():
+                continue
+            for task_dir in tasks_dir.iterdir():
+                if not task_dir.is_dir():
+                    continue
+                try:
+                    shutil.rmtree(task_dir)
+                    logger.info("Cleaned up stale task directory: %s", task_dir.name)
+                except OSError:
+                    logger.warning("Failed to clean up task directory: %s", task_dir)
 
     def _detect_repo_path(self) -> Path:
         """Detect git root from current directory."""
