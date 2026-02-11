@@ -26,7 +26,7 @@ build-backend = "hatchling.build"
 packages = ["src/microvm_orchestrator"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"default.nix" = "microvm_orchestrator/nix/default.nix"
+"default.nix" = "microvm_orchestrator/default.nix"
 "nix/vm-config.nix" = "microvm_orchestrator/nix/vm-config.nix"
 
 [dependency-groups]

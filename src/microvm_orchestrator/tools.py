@@ -74,9 +74,9 @@ class Orchestrator:
 
         # When installed as a package, nix files are in package data
         try:
-            pkg_nix_dir = importlib.resources.files("microvm_orchestrator") / "nix"
-            if pkg_nix_dir.joinpath("default.nix").is_file():
-                return Path(str(pkg_nix_dir))
+            pkg_dir = importlib.resources.files("microvm_orchestrator")
+            if pkg_dir.joinpath("default.nix").is_file():
+                return Path(str(pkg_dir))
         except (TypeError, FileNotFoundError):
             pass
 
