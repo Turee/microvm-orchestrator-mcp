@@ -178,6 +178,21 @@ class TestCleanupTask:
         assert task_id not in orchestrator._tasks
         assert task_id not in orchestrator._processes
 
+    async def test_cleanup_task_releases_slot(
+        self, orchestrator: Orchestrator, mock_orchestrator_deps
+    ):
+        """cleanup_task releases the slot when stopping a running task."""
+        result = await orchestrator.run_task("Test", repo="project")
+        task_id = result["task_id"]
+        task = orchestrator._tasks[task_id]
+        task.task_dir.mkdir(parents=True, exist_ok=True)
+
+        assert len(orchestrator.slot_manager.get_active_tasks()) == 1
+
+        await orchestrator.cleanup_task(task_id)
+
+        assert len(orchestrator.slot_manager.get_active_tasks()) == 0
+
     async def test_cleanup_task_deletes_ref(
         self, orchestrator: Orchestrator, mock_orchestrator_deps
     ):

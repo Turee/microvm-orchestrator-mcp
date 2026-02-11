@@ -357,6 +357,9 @@ class Orchestrator:
         if process := self._processes.get(task_id):
             process.stop()
             self._processes.pop(task_id, None)
+            # Release slot explicitly — the monitor thread's _on_task_exit
+            # callback may not run (or may race with rmtree below).
+            self.slot_manager.release_slot(task.slot)
 
         # Delete task directory (async to avoid blocking on large directories)
         if task.task_dir.exists():
