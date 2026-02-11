@@ -169,7 +169,29 @@ and re-enter the shell with `nix develop`.
 
 ## Installation
 
-Add to your Claude Code MCP configuration (`~/.config/claude-code/mcp.json`):
+### Install the CLI
+
+**Using uv (recommended):**
+```bash
+uv tool install git+https://github.com/anthropics/microvm-orchestrator-mcp
+```
+
+**Using pipx:**
+```bash
+pipx install git+https://github.com/anthropics/microvm-orchestrator-mcp
+```
+
+**From source (for development):**
+```bash
+git clone https://github.com/anthropics/microvm-orchestrator-mcp
+cd microvm-orchestrator-mcp
+uv sync
+```
+When running from source, prefix commands with `uv run` (e.g. `uv run microvm-orchestrator serve`).
+
+### Configure Claude Code
+
+Add to your MCP configuration (`~/.config/claude-code/mcp.json`):
 
 ```json
 {
@@ -180,7 +202,7 @@ Add to your Claude Code MCP configuration (`~/.config/claude-code/mcp.json`):
 }
 ```
 
-The server uses HTTP transport (not stdio) so you can cancel MCP queries without restarting the server - important for long-running VM tasks.
+The server uses HTTP transport (not stdio) so you can cancel MCP queries without restarting the server — important for long-running VM tasks.
 
 ### Register Repositories
 
@@ -199,22 +221,8 @@ microvm-orchestrator list
 
 ## Running the Server
 
-**Using the CLI (recommended):**
 ```bash
 microvm-orchestrator serve
-```
-
-**Using uvx (no installation needed):**
-```bash
-uvx --from git+https://github.com/anthropics/microvm-orchestrator-mcp microvm-orchestrator serve
-```
-
-**From source:**
-```bash
-git clone https://github.com/anthropics/microvm-orchestrator-mcp
-cd microvm-orchestrator-mcp
-uv sync
-python -m microvm_orchestrator serve
 ```
 
 The server listens on `http://127.0.0.1:8765` and serves all registered repositories.
