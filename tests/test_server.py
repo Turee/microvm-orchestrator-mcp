@@ -17,6 +17,7 @@ from microvm_orchestrator.server import (
     get_task_logs,
     wait_next_event,
     cleanup_task,
+    list_tasks,
 )
 from microvm_orchestrator.tools import ToolError
 
@@ -299,5 +300,41 @@ class TestCleanupTask:
 
         with patch("microvm_orchestrator.server.get_orchestrator", return_value=mock_orchestrator):
             result = await cleanup_task("abc123")
+
+        assert result == {"error": "Unexpected error"}
+
+
+# =============================================================================
+# list_tasks Tests
+# =============================================================================
+
+
+class TestListTasks:
+    """Tests for the list_tasks MCP tool."""
+
+    async def test_list_tasks_returns_tasks(self):
+        """list_tasks returns {"tasks": [...]} on success."""
+        expected_tasks = [
+            {"task_id": "abc123", "status": "running", "description": "Task 1", "repo": "my-repo"},
+            {"task_id": "def456", "status": "completed", "description": "Task 2", "repo": "other-repo"},
+        ]
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.list_tasks = MagicMock(return_value=expected_tasks)
+
+        with patch("microvm_orchestrator.server.get_orchestrator", return_value=mock_orchestrator):
+            result = await list_tasks()
+
+        assert result == {"tasks": expected_tasks}
+        mock_orchestrator.list_tasks.assert_called_once()
+
+    async def test_list_tasks_error_format(self):
+        """list_tasks returns {"error": str} on generic exception."""
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.list_tasks = MagicMock(
+            side_effect=RuntimeError("Unexpected error")
+        )
+
+        with patch("microvm_orchestrator.server.get_orchestrator", return_value=mock_orchestrator):
+            result = await list_tasks()
 
         assert result == {"error": "Unexpected error"}
