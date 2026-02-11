@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -9,6 +10,18 @@ from pathlib import Path
 import click
 
 from .core.registry import RepoNotGitError, RepoRegistry, UnknownRepoError
+
+# Token pattern: sk-ant- followed by base64url chars and hyphens.
+# The output may line-wrap, so we strip whitespace before matching.
+_TOKEN_RE = re.compile(r"sk-ant-[A-Za-z0-9_-]+")
+
+
+def _extract_token(output: str) -> str | None:
+    """Extract an Anthropic API token from noisy CLI output."""
+    # Remove all whitespace so line-wrapped tokens become contiguous
+    collapsed = re.sub(r"\s+", "", output)
+    match = _TOKEN_RE.search(collapsed)
+    return match.group(0) if match else None
 
 
 @click.group()
@@ -84,9 +97,12 @@ def setup_token():
             f"'claude setup-token' failed (exit {result.returncode}): {result.stderr.strip()}"
         )
 
-    token = result.stdout.strip()
+    token = _extract_token(result.stdout)
     if not token:
-        raise click.ClickException("No token received from 'claude setup-token'.")
+        raise click.ClickException(
+            "Could not find a token in 'claude setup-token' output. "
+            "Expected a token starting with 'sk-ant-'."
+        )
 
     token_dir = Path.home() / ".microvm-orchestrator"
     token_dir.mkdir(parents=True, exist_ok=True)
