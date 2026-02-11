@@ -339,7 +339,8 @@ class TestNixDevelopIntegration:
             assert "hello" in cowsay_content.lower(), f"Expected 'hello' in cowsay.txt, got: {cowsay_content}"
 
             # Verify commits were made
-            assert task_info["commit_count"] > 0, f"Expected commits to be made, got: {task_info['commit_count']}"
+            merge_result = task_info.get("merge_result", {})
+            assert merge_result.get("commits", 0) > 0, f"Expected commits to be made, got: {merge_result}"
 
         finally:
             # Always cleanup
