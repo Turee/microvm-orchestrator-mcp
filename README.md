@@ -173,17 +173,17 @@ and re-enter the shell with `nix develop`.
 
 **Using uv (recommended):**
 ```bash
-uv tool install git+https://github.com/anthropics/microvm-orchestrator-mcp
+uv tool install git+https://github.com/Turee/microvm-orchestrator-mcp
 ```
 
 **Using pipx:**
 ```bash
-pipx install git+https://github.com/anthropics/microvm-orchestrator-mcp
+pipx install git+https://github.com/Turee/microvm-orchestrator-mcp
 ```
 
 **From source (for development):**
 ```bash
-git clone https://github.com/anthropics/microvm-orchestrator-mcp
+git clone https://github.com/Turee/microvm-orchestrator-mcp
 cd microvm-orchestrator-mcp
 uv sync
 ```
