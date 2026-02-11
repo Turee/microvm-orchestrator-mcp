@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from microvm_orchestrator.core.registry import RepoRegistry
+from microvm_orchestrator.core.slots import SlotManager
 from microvm_orchestrator.tools import Orchestrator
 
 
@@ -47,9 +49,9 @@ X86_ONLY_FLAKE_NIX = """\
 }
 """
 
-TASK_DESCRIPTION = """
-Create a file named 'hello.txt' with the content 'integration test passed'.
-Then write result.json with {"success": true, "summary": "Created hello.txt"}.
+TASK_DESCRIPTION = """\
+Create a file named 'hello.txt' with the exact content 'integration test passed'.
+Then git add and git commit the file with message 'Add hello.txt'.
 """
 
 
@@ -122,10 +124,17 @@ class TestEndToEndIntegration:
 
     @pytest.fixture
     def api_key(self) -> str:
-        """Get API key from environment."""
+        """Get API key from environment or token file."""
         key = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
         if not key:
-            pytest.skip("CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY not set")
+            token_file = Path.home() / ".microvm-orchestrator" / "token"
+            if token_file.exists():
+                key = token_file.read_text().strip()
+        if not key:
+            pytest.skip(
+                "No API key found. Set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY, "
+                "or run 'microvm-orchestrator setup-token'"
+            )
         return key
 
     async def test_smoke_vm_creates_file(
@@ -141,9 +150,12 @@ class TestEndToEndIntegration:
         3. Verify the expected file was created
         4. Clean up the task
         """
-        # Create orchestrator with temp project
+        # Create orchestrator with isolated registry (avoids global registry pollution)
         orchestrator = Orchestrator(repo_path=e2e_project)
-        # Register the project so we can use repo alias
+        isolated_dir = e2e_project / ".microvm"
+        isolated_dir.mkdir(exist_ok=True)
+        orchestrator.registry = RepoRegistry(registry_path=isolated_dir / "test-repos.json")
+        orchestrator.slot_manager = SlotManager(assignments_path=isolated_dir / "test-slots.json")
         orchestrator.registry.allow(e2e_project, alias="e2e-test")
 
         # Start task using repo alias (slot assigned automatically)
@@ -157,33 +169,41 @@ class TestEndToEndIntegration:
             # Get task info for debugging
             task_info = orchestrator.get_task_info(task_id)
             repo_path = Path(task_info["repo_path"])
+            isolated_repo = Path(task_info["isolated_repo_path"])
+
+            # Helper: collect diagnostic info for failure messages
+            def _diag() -> str:
+                parts = [f"Event: {event}"]
+                parts.append(f"Result: {event.get('result')}")
+                parts.append(f"Merge result: {event.get('merge_result')}")
+                # Check isolated repo for uncommitted files
+                if isolated_repo.exists():
+                    iso_files = [
+                        str(f.relative_to(isolated_repo))
+                        for f in isolated_repo.rglob("*")
+                        if f.is_file() and ".git" not in f.parts
+                    ]
+                    parts.append(f"Isolated repo files: {iso_files}")
+                try:
+                    log_path = orchestrator.get_task_logs(task_id).get("log_path")
+                    if log_path and Path(log_path).exists():
+                        parts.append(f"Logs (last 3k):\n{Path(log_path).read_text()[-3000:]}")
+                except Exception:
+                    pass
+                return "\n".join(parts)
 
             # On failure, capture logs before assertions
             if event.get("event") != "completed":
-                log_path = orchestrator.get_task_logs(task_id).get("log_path")
-                if log_path and Path(log_path).exists():
-                    log_content = Path(log_path).read_text()[-5000:]  # Last 5k chars
-                    pytest.fail(f"Task failed. Event: {event}\nLogs (last 5k):\n{log_content}")
+                pytest.fail(f"Task did not complete.\n{_diag()}")
 
             # Verify completion
             assert event.get("event") == "completed", f"Expected 'completed', got: {event}"
             assert event.get("exit_code") == 0, f"Expected exit_code 0, got: {event.get('exit_code')}"
 
-            # Verify hello.txt was created
+            # Verify hello.txt was merged back to original repo
             hello_file = repo_path / "hello.txt"
             if not hello_file.exists():
-                # Show what's in the repo for debugging
-                files = list(repo_path.rglob("*"))
-                result_json = repo_path.parent / "result.json"
-                result_content = result_json.read_text() if result_json.exists() else "not found"
-                log_path = orchestrator.get_task_logs(task_id).get("log_path")
-                log_content = Path(log_path).read_text()[-3000:] if log_path and Path(log_path).exists() else "not found"
-                pytest.fail(
-                    f"Expected {hello_file} to exist\n"
-                    f"Files in repo: {[str(f.relative_to(repo_path)) for f in files if f.is_file()]}\n"
-                    f"result.json: {result_content}\n"
-                    f"Logs (last 3k):\n{log_content}"
-                )
+                pytest.fail(f"Expected {hello_file} to exist\n{_diag()}")
             content = hello_file.read_text()
             assert "integration test passed" in content, f"Unexpected content: {content}"
 
@@ -246,8 +266,12 @@ class TestEndToEndIntegration:
                 capture_output=True,
             )
 
-            # Create orchestrator and register project
+            # Create orchestrator with isolated registry (avoids global registry pollution)
             orchestrator = Orchestrator(repo_path=project)
+            isolated_dir = project / ".microvm"
+            isolated_dir.mkdir(exist_ok=True)
+            orchestrator.registry = RepoRegistry(registry_path=isolated_dir / "test-repos.json")
+            orchestrator.slot_manager = SlotManager(assignments_path=isolated_dir / "test-slots.json")
             orchestrator.registry.allow(project, alias="x86-test")
 
             # Start task using repo alias (slot assigned automatically)
@@ -261,33 +285,42 @@ class TestEndToEndIntegration:
                 # Get task info for debugging
                 task_info = orchestrator.get_task_info(task_id)
                 repo_path = Path(task_info["repo_path"])
+                isolated_repo = Path(task_info["isolated_repo_path"])
+
+                # Helper: collect diagnostic info for failure messages
+                def _diag() -> str:
+                    parts = [f"Event: {event}"]
+                    parts.append(f"Result: {event.get('result')}")
+                    parts.append(f"Merge result: {event.get('merge_result')}")
+                    if isolated_repo.exists():
+                        iso_files = [
+                            str(f.relative_to(isolated_repo))
+                            for f in isolated_repo.rglob("*")
+                            if f.is_file() and ".git" not in f.parts
+                        ]
+                        parts.append(f"Isolated repo files: {iso_files}")
+                    try:
+                        log_path = orchestrator.get_task_logs(task_id).get("log_path")
+                        if log_path and Path(log_path).exists():
+                            parts.append(f"Logs (last 3k):\n{Path(log_path).read_text()[-3000:]}")
+                    except Exception:
+                        pass
+                    return "\n".join(parts)
 
                 # On failure, capture logs before assertions
                 if event.get("event") != "completed":
-                    log_path = orchestrator.get_task_logs(task_id).get("log_path")
-                    if log_path and Path(log_path).exists():
-                        log_content = Path(log_path).read_text()[-5000:]  # Last 5k chars
-                        pytest.fail(f"x86_64 task failed (Rosetta may not be working). Event: {event}\nLogs (last 5k):\n{log_content}")
+                    pytest.fail(
+                        f"x86_64 task failed (Rosetta may not be working).\n{_diag()}"
+                    )
 
                 # Verify completion
                 assert event.get("event") == "completed", f"Expected 'completed', got: {event}"
                 assert event.get("exit_code") == 0, f"Expected exit_code 0, got: {event.get('exit_code')}"
 
-                # Verify hello.txt was created
+                # Verify hello.txt was merged back to original repo
                 hello_file = repo_path / "hello.txt"
                 if not hello_file.exists():
-                    # Show what's in the repo for debugging
-                    files = list(repo_path.rglob("*"))
-                    result_json = repo_path.parent / "result.json"
-                    result_content = result_json.read_text() if result_json.exists() else "not found"
-                    log_path = orchestrator.get_task_logs(task_id).get("log_path")
-                    log_content = Path(log_path).read_text()[-3000:] if log_path and Path(log_path).exists() else "not found"
-                    pytest.fail(
-                        f"Expected {hello_file} to exist\n"
-                        f"Files in repo: {[str(f.relative_to(repo_path)) for f in files if f.is_file()]}\n"
-                        f"result.json: {result_content}\n"
-                        f"Logs (last 3k):\n{log_content}"
-                    )
+                    pytest.fail(f"Expected {hello_file} to exist\n{_diag()}")
                 content = hello_file.read_text()
                 assert "integration test passed" in content, f"Unexpected content: {content}"
 
