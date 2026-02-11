@@ -11,8 +11,9 @@ MCP server for orchestrating parallel execution of development tasks in isolated
 - [Target Repository Requirements](#target-repository-requirements)
 - [Installation](#installation)
 - [Running the Server](#running-the-server)
+- [CLI Reference](#cli-reference)
 - [MCP Tools Reference](#mcp-tools-reference)
-- [Parallel Execution with Slots](#parallel-execution-with-slots)
+- [Parallel Execution](#parallel-execution)
 - [File Locations](#file-locations)
 - [Result Formats](#result-formats)
 - [Manual Conflict Resolution](#manual-conflict-resolution)
@@ -31,49 +32,54 @@ MCP server for orchestrating parallel execution of development tasks in isolated
 - **Docker/Podman Support**: Rootless Podman with Docker CLI compatibility inside VMs
 - **Rosetta 2 Support**: Run x86_64 binaries on Apple Silicon via transparent translation
 - **Persistent Storage**: Container images and Nix store cached across tasks via slots
+- **Multi-Repo Support**: Register multiple repositories and run tasks against any of them from a single server
+- **Automatic Slot Assignment**: Slots assigned automatically with repo affinity for cache reuse
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ Host (macOS)                                                │
-│                                                             │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │ MCP Server (127.0.0.1:8765)                            │ │
-│  │   • Orchestrator - manages task lifecycle              │ │
-│  │   • Event queue - async completion notifications       │ │
-│  │   • Git isolation - clones repo per task               │ │
-│  └──────────────────────┬─────────────────────────────────┘ │
-│                         │ spawns via nix-build + vfkit      │
-│                         ▼                                   │
-│  ┌──────────────────┐  ┌──────────────────┐                 │
-│  │  MicroVM Slot 1  │  │  MicroVM Slot 2  │  ...            │
-│  │  ┌────────────┐  │  │  ┌────────────┐  │                 │
-│  │  │ NixOS      │  │  │  │ NixOS      │  │                 │
-│  │  │ Claude Code│  │  │  │ Claude Code│  │                 │
-│  │  │ nix develop│  │  │  │ nix develop│  │                 │
-│  │  │ Podman     │  │  │  │ Podman     │  │                 │
-│  │  └────────────┘  │  │  └────────────┘  │                 │
-│  │  --skip-perms    │  │  --skip-perms    │                 │
-│  └──────────────────┘  └──────────────────┘                 │
-│                                                             │
-│  Mounts per VM:                                             │
-│  • /workspace/repo - isolated git clone                     │
-│  • /nix/store (RO) - host Nix store                         │
-│  • /nix/.rw-store - writable overlay (sparse, 30GB max)     │
-│  • /var - persistent slot storage                           │
-│  • /var/lib/containers - Podman image cache                 │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│ Host (macOS)                                                      │
+│                                                                   │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │ MCP Server (127.0.0.1:8765)                                  │ │
+│  │   • RepoRegistry - CLI-managed repo allowlist                │ │
+│  │   • SlotManager  - automatic slot assignment w/ affinity     │ │
+│  │   • Orchestrator - manages task lifecycle                    │ │
+│  │   • Event queue  - async completion notifications            │ │
+│  │   • Git isolation - clones target repo per task              │ │
+│  └────────────────────────┬─────────────────────────────────────┘ │
+│                           │ spawns via nix-build + vfkit          │
+│   Registered repos:       ▼                                      │
+│   ┌──────────┐  ┌──────────────────┐  ┌──────────────────┐       │
+│   │ project-a│  │  MicroVM Slot 1  │  │  MicroVM Slot 2  │ ...   │
+│   │ project-b│  │  ┌────────────┐  │  │  ┌────────────┐  │       │
+│   │ project-c│  │  │ NixOS      │  │  │  │ NixOS      │  │       │
+│   └──────────┘  │  │ Claude Code│  │  │  │ Claude Code│  │       │
+│        │        │  │ nix develop│  │  │  │ nix develop│  │       │
+│        │        │  │ Podman     │  │  │  │ Podman     │  │       │
+│        └───────►│  └────────────┘  │  │  └────────────┘  │       │
+│     clone to    │  --skip-perms    │  │  --skip-perms    │       │
+│     /workspace  └──────────────────┘  └──────────────────┘       │
+│                                                                   │
+│  Mounts per VM:                                                   │
+│  • /workspace/repo - isolated git clone of target repo            │
+│  • /nix/store (RO) - host Nix store                               │
+│  • /nix/.rw-store - writable overlay (sparse, 30GB max)           │
+│  • /var - persistent slot storage                                 │
+│  • /var/lib/containers - Podman image cache                       │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 ### Task Lifecycle
 
-1. **Create**: `run_task()` clones your repo to `.microvm/tasks/<id>/repo/`
-2. **Boot**: NixOS microVM starts with repo mounted at `/workspace/repo`
-3. **Execute**: `nix develop` loads your flake, then Claude Code runs the task
-4. **Commit**: Claude commits changes to the isolated repo
-5. **Merge**: Orchestrator rebases commits onto your branch automatically
-6. **Cleanup**: VM shuts down, task directory can be removed
+1. **Create**: `run_task()` resolves the repo alias, clones it to `.microvm/tasks/<id>/repo/`
+2. **Slot**: `SlotManager` assigns a slot automatically (prefers same slot for same repo)
+3. **Boot**: NixOS microVM starts with repo mounted at `/workspace/repo`
+4. **Execute**: `nix develop` loads your flake, then Claude Code runs the task
+5. **Commit**: Claude commits changes to the isolated repo
+6. **Merge**: Orchestrator rebases commits onto your branch automatically
+7. **Cleanup**: VM shuts down, slot is released, task directory can be removed
 
 ## Prerequisites
 
@@ -86,7 +92,6 @@ MCP server for orchestrating parallel execution of development tasks in isolated
   ```
 - **nix-darwin with Linux builder** (for building aarch64-linux VMs)
 - **Python 3.13+**
-- **Git repository** (tasks run in isolated clones of your current repo)
 - **Rosetta 2** (optional, for x86_64 binary support):
   ```bash
   softwareupdate --install-rosetta
@@ -95,20 +100,17 @@ MCP server for orchestrating parallel execution of development tasks in isolated
 ## Quick Start
 
 ```bash
-# 1. Navigate to your project (must have flake.nix and be a git repo)
-cd /path/to/your/project
+# 1. Register your project (must have flake.nix and be a git repo)
+microvm-orchestrator allow /path/to/your/project
 
-# 2. Start the MCP server using uvx (no installation needed)
-uvx --from git+https://github.com/anthropics/microvm-orchestrator-mcp microvm-orchestrator-mcp
-# Output: Working directory: /path/to/your/project
+# 2. Start the MCP server
+microvm-orchestrator serve
 
 # 3. Configure Claude Code (see Installation section)
 
 # 4. In Claude Code, use the MCP tools:
-#    "Use run_task to add unit tests for the auth module"
+#    "Use run_task to add unit tests for the auth module in your-project"
 ```
-
-**Important**: The MCP server must be started from within the git repository you want to work on. The server uses the current working directory to determine the target project.
 
 ## Target Repository Requirements
 
@@ -180,12 +182,31 @@ Add to your Claude Code MCP configuration (`~/.config/claude-code/mcp.json`):
 
 The server uses HTTP transport (not stdio) so you can cancel MCP queries without restarting the server - important for long-running VM tasks.
 
+### Register Repositories
+
+Before running tasks, register repositories via the CLI:
+
+```bash
+# Register a repo (alias defaults to directory name)
+microvm-orchestrator allow /path/to/your/project
+
+# Register with a custom alias
+microvm-orchestrator allow /path/to/your/project --alias myproject
+
+# Verify registration
+microvm-orchestrator list
+```
+
 ## Running the Server
 
-**Using uvx (recommended, no installation needed):**
+**Using the CLI (recommended):**
 ```bash
-cd /path/to/your/project
-uvx --from git+https://github.com/anthropics/microvm-orchestrator-mcp microvm-orchestrator-mcp
+microvm-orchestrator serve
+```
+
+**Using uvx (no installation needed):**
+```bash
+uvx --from git+https://github.com/anthropics/microvm-orchestrator-mcp microvm-orchestrator serve
 ```
 
 **From source:**
@@ -193,14 +214,50 @@ uvx --from git+https://github.com/anthropics/microvm-orchestrator-mcp microvm-or
 git clone https://github.com/anthropics/microvm-orchestrator-mcp
 cd microvm-orchestrator-mcp
 uv sync
-
-cd /path/to/your/project
-python -m microvm_orchestrator
+python -m microvm_orchestrator serve
 ```
 
-The server listens on `http://127.0.0.1:8765` and prints the working directory on startup.
+The server listens on `http://127.0.0.1:8765` and serves all registered repositories.
 
-**Important**: The server must be started from within the git repository you want to work on.
+## CLI Reference
+
+### `microvm-orchestrator allow [PATH] [--alias ALIAS]`
+
+Register a repository for use with microvm tasks.
+
+- `PATH`: Path to a git repository (default: current directory)
+- `--alias`, `-a`: Custom alias for the repo (default: directory name)
+
+```bash
+microvm-orchestrator allow /path/to/project
+# Registered: project
+
+microvm-orchestrator allow /path/to/project --alias myapp
+# Registered: myapp
+```
+
+### `microvm-orchestrator list`
+
+List all registered repositories.
+
+```bash
+microvm-orchestrator list
+#   myapp: /path/to/project
+#   backend: /path/to/backend
+```
+
+### `microvm-orchestrator remove ALIAS`
+
+Remove a repository from the allowlist.
+
+```bash
+microvm-orchestrator remove myapp
+# Removed: myapp
+```
+
+### `microvm-orchestrator serve`
+
+Start the MCP server. Serves all registered repositories.
 
 ## MCP Tools Reference
 
@@ -209,14 +266,14 @@ The server listens on `http://127.0.0.1:8765` and prints the working directory o
 Start a new task in an isolated microVM.
 
 ```
-run_task(description: str, slot: int = 1) -> {"task_id": str}
+run_task(description: str, repo: str) -> {"task_id": str}
 ```
 
 **Parameters:**
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `description` | str | required | Full task instructions for Claude in the VM. Include all context needed. |
-| `slot` | int | 1 | Slot number (1-N) for persistent storage. Use different slots for parallel tasks. |
+| Name | Type | Description |
+|------|------|-------------|
+| `description` | str | Full task instructions for Claude in the VM. Include all context needed. |
+| `repo` | str | Repository alias (registered via CLI). Use `list_repos()` to see available repos. |
 
 **Returns:** `{"task_id": "abc123"}` or `{"error": "message"}`
 
@@ -224,13 +281,14 @@ run_task(description: str, slot: int = 1) -> {"task_id": str}
 ```python
 run_task(
     description="Add unit tests for the auth module. Follow existing test patterns in tests/.",
-    slot=1
+    repo="myproject"
 )
 ```
 
 **Notes:**
 - If the task involves Docker, include "use --network=host" in the description
 - First run on a new slot takes longer (creates nix store overlay)
+- Slots are assigned automatically - no need to specify a slot number
 
 ---
 
@@ -314,8 +372,8 @@ Or on timeout: `{"timeout": true}`
 **Pattern for multiple tasks:**
 ```python
 # Start multiple tasks
-run_task("Task A", slot=1)
-run_task("Task B", slot=2)
+run_task("Task A", repo="frontend")
+run_task("Task B", repo="backend")
 
 # Wait for each to complete
 event1 = wait_next_event(timeout_ms=300000)  # 5 min
@@ -338,25 +396,90 @@ cleanup_task(task_id: str, delete_ref: bool = False) -> {"success": bool}
 | `task_id` | str | required | Task ID to clean up |
 | `delete_ref` | bool | false | Also delete `refs/tasks/<task_id>` from git |
 
-## Parallel Execution with Slots
+---
 
-Use different slots for parallel tasks to avoid storage conflicts:
+### list_repos
 
-```python
-# Parallel tasks use different slots
-run_task(description="Task A", slot=1)
-run_task(description="Task B", slot=2)
-run_task(description="Task C", slot=3)
+List registered repositories that can be used with `run_task`.
+
+```
+list_repos() -> {"repos": [{"alias": str, "path": str, "added": str}, ...]}
 ```
 
-Slot storage persists across tasks, so container images and Nix packages are cached.
+**Example response:**
+```json
+{
+  "repos": [
+    {"alias": "myproject", "path": "/Users/me/projects/myproject", "added": "2025-01-15T10:30:00+00:00"},
+    {"alias": "backend", "path": "/Users/me/projects/backend", "added": "2025-01-15T10:31:00+00:00"}
+  ]
+}
+```
+
+---
+
+### list_tasks
+
+List all tasks across all registered repos.
+
+```
+list_tasks() -> {"tasks": [{"task_id": str, "status": str, "description": str, "repo": str}, ...]}
+```
+
+---
+
+### list_slots
+
+Show slot status and availability.
+
+```
+list_slots() -> {"max_slots": int, "active": [...], "available": [int, ...]}
+```
+
+**Example response:**
+```json
+{
+  "max_slots": 10,
+  "active": [
+    {"slot": 1, "task_id": "abc123"},
+    {"slot": 3, "task_id": "def456"}
+  ],
+  "available": [2, 4, 5, 6, 7, 8, 9, 10]
+}
+```
+
+## Parallel Execution
+
+Slots are assigned automatically with repo affinity. Just call `run_task` with any registered repo — the `SlotManager` handles the rest:
+
+```python
+# Run tasks across different repos — slots assigned automatically
+run_task(description="Add auth tests", repo="frontend")
+run_task(description="Add API endpoint", repo="backend")
+run_task(description="Update docs", repo="frontend")
+
+# Wait for results
+event1 = wait_next_event(timeout_ms=300000)
+event2 = wait_next_event(timeout_ms=300000)
+event3 = wait_next_event(timeout_ms=300000)
+```
+
+**How slot assignment works:**
+- Each repo gets a "preferred" slot based on a hash of its path (deterministic)
+- If the preferred slot is free, it's used — this maximizes Nix store and container cache reuse
+- If the preferred slot is busy, any free slot is used instead
+- Maximum 10 slots. If all are busy, `run_task` returns an error — wait for tasks to complete or check `list_slots()`
 
 **Slot storage location:** `~/.microvm-orchestrator/slots/<N>/`
+
+Slot storage persists across tasks, so container images and Nix packages are cached.
 
 ## File Locations
 
 | Path | Description |
 |------|-------------|
+| `~/.microvm-orchestrator/allowed-repos.json` | Registered repos allowlist |
+| `~/.microvm-orchestrator/slot-assignments.json` | Repo-to-slot affinity mapping |
 | `.microvm/tasks/<id>/` | Task working directory |
 | `.microvm/tasks/<id>/task.json` | Task metadata and state |
 | `.microvm/tasks/<id>/task.md` | Original task description |
@@ -433,6 +556,8 @@ git branch -d temp
 
 | Error | Cause | Solution |
 |-------|-------|----------|
+| "Repo 'x' not registered" | Repo alias not in allowlist | Run `microvm-orchestrator allow /path/to/repo` |
+| "All 10 slots are busy" | No free slots available | Wait for tasks to complete or check `list_slots()` |
 | "No flake.nix found" | Target repo missing flake | Add `flake.nix` with `devShells.default` |
 | "No API key found" | Missing environment variable | Set `ANTHROPIC_API_KEY` or run `claude /login` |
 | "nix-build failed" | Flake evaluation error | Run `nix flake check` in your repo |
@@ -487,7 +612,7 @@ cat .microvm/tasks/<id>/claude-stream.jsonl | jq -s .
 | Storage per slot | ~2-5 GB actual (30 GB max, sparse file) |
 | VM resources | 4 vCPU, 4 GB RAM (hardcoded) |
 | Platform | macOS Apple Silicon only (vfkit) |
-| Parallel limit | Based on host RAM (4 GB per VM) |
+| Max parallel slots | 10 (limited by host RAM, 4 GB per VM) |
 
 **Note on storage**: The `nix-store.img` is a sparse file - it reports 30GB but only uses actual disk space for data written (~2GB typical).
 
@@ -498,6 +623,7 @@ cat .microvm/tasks/<id>/claude-stream.jsonl | jq -s .
 - **Network access**: VMs have full internet access for npm, API calls, etc.
 - **Git isolation**: Tasks work on clones, never modifying your original repo directly
 - **Hardware isolation**: Complete VM isolation via vfkit hypervisor
+- **Repo allowlist**: Only explicitly registered repositories can be used
 
 ## Development
 
