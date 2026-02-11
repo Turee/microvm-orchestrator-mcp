@@ -40,6 +40,9 @@ let
         varDir = effectiveVarDir;
         containerDir = effectiveContainerDir;
       })
+      # Disable the virtiofsd module — vfkit handles virtiofs natively via
+      # macOS Virtualization.framework, and virtiofsd is Linux-only.
+      { disabledModules = [ "${microvm}/nixos-modules/microvm/virtiofsd" ]; }
     ];
   };
 in
