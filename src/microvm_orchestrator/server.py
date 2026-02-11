@@ -156,6 +156,20 @@ async def list_repos() -> dict:
 
 
 @mcp.tool()
+async def list_tasks() -> dict:
+    """List all tasks across all registered repos for debugging.
+
+    Returns:
+        {"tasks": [{"task_id": str, "status": str, "description": str, "repo": str}, ...]}
+    """
+    try:
+        orchestrator = get_orchestrator()
+        return {"tasks": orchestrator.list_tasks()}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@mcp.tool()
 async def list_slots() -> dict:
     """Show slot status and availability for debugging.
 
