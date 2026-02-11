@@ -11,6 +11,8 @@ import pytest
 from microvm_orchestrator.tools import Orchestrator, ToolError
 from microvm_orchestrator.core.events import EventType
 from microvm_orchestrator.core.git import MergeResult
+from microvm_orchestrator.core.registry import RepoRegistry
+from microvm_orchestrator.core.slots import SlotManager
 
 
 # =============================================================================
@@ -363,3 +365,102 @@ class TestEdgeCases:
         tasks = orchestrator.list_tasks()
 
         assert len(tasks) == 3
+
+
+# =============================================================================
+# Stale Task Cleanup Tests
+# =============================================================================
+
+
+class TestCleanupStaleTasks:
+    """Tests for Orchestrator._cleanup_stale_tasks() method."""
+
+    def _make_orchestrator(self, tmp_path: Path, *repos: Path) -> Orchestrator:
+        """Create Orchestrator with repos registered, bypassing __init__ cleanup."""
+        registry_path = tmp_path / "allowed-repos.json"
+        slots_path = tmp_path / "slot-assignments.json"
+
+        with patch.object(Orchestrator, "_cleanup_stale_tasks"):
+            orch = Orchestrator()
+        orch.registry = RepoRegistry(registry_path=registry_path)
+        orch.slot_manager = SlotManager(assignments_path=slots_path)
+        for i, repo in enumerate(repos):
+            orch.registry.allow(repo, alias=f"repo-{i}")
+        return orch
+
+    def test_stale_dirs_cleaned(self, tmp_path: Path, tmp_project: Path):
+        """Stale task directories are removed on cleanup."""
+        # Create stale task dirs
+        tasks_dir = tmp_project / ".microvm" / "tasks"
+        for name in ["task-aaa", "task-bbb"]:
+            (tasks_dir / name).mkdir(parents=True)
+            (tasks_dir / name / "task.json").write_text("{}")
+
+        orch = self._make_orchestrator(tmp_path, tmp_project)
+        orch._cleanup_stale_tasks()
+
+        assert not (tasks_dir / "task-aaa").exists()
+        assert not (tasks_dir / "task-bbb").exists()
+        # tasks/ dir itself still exists (we only remove subdirs)
+        assert tasks_dir.exists()
+
+    def test_non_dir_files_not_removed(self, tmp_path: Path, tmp_project: Path):
+        """Non-directory files under tasks/ are left alone."""
+        tasks_dir = tmp_project / ".microvm" / "tasks"
+        tasks_dir.mkdir(parents=True)
+        # A stale dir (should be removed)
+        (tasks_dir / "task-aaa").mkdir()
+        # A plain file (should be kept)
+        (tasks_dir / ".gitkeep").write_text("")
+
+        orch = self._make_orchestrator(tmp_path, tmp_project)
+        orch._cleanup_stale_tasks()
+
+        assert not (tasks_dir / "task-aaa").exists()
+        assert (tasks_dir / ".gitkeep").exists()
+
+    def test_no_tasks_dir_no_error(self, tmp_path: Path, tmp_project: Path):
+        """Repo with no .microvm/tasks/ directory causes no error."""
+        orch = self._make_orchestrator(tmp_path, tmp_project)
+        # Should not raise
+        orch._cleanup_stale_tasks()
+
+    def test_permission_error_continues(self, tmp_path: Path, tmp_project: Path):
+        """One failing rmtree doesn't block cleanup of other dirs."""
+        tasks_dir = tmp_project / ".microvm" / "tasks"
+        for name in ["task-fail", "task-ok"]:
+            (tasks_dir / name).mkdir(parents=True)
+
+        orch = self._make_orchestrator(tmp_path, tmp_project)
+
+        original_rmtree = __import__("shutil").rmtree
+
+        def selective_rmtree(path, *args, **kwargs):
+            if Path(path).name == "task-fail":
+                raise OSError("Permission denied")
+            original_rmtree(path, *args, **kwargs)
+
+        with patch("microvm_orchestrator.tools.shutil.rmtree", side_effect=selective_rmtree):
+            orch._cleanup_stale_tasks()
+
+        # task-fail still exists (rmtree failed), task-ok cleaned
+        assert (tasks_dir / "task-fail").exists()
+        assert not (tasks_dir / "task-ok").exists()
+
+    def test_multiple_repos_cleaned(self, tmp_path: Path):
+        """Stale dirs in multiple registered repos are all cleaned."""
+        repos = []
+        for name in ["repo-a", "repo-b"]:
+            repo = tmp_path / name
+            repo.mkdir()
+            # Create git repo (minimal)
+            (repo / ".git").mkdir()
+            tasks_dir = repo / ".microvm" / "tasks" / "stale-task"
+            tasks_dir.mkdir(parents=True)
+            repos.append(repo)
+
+        orch = self._make_orchestrator(tmp_path, *repos)
+        orch._cleanup_stale_tasks()
+
+        for repo in repos:
+            assert not (repo / ".microvm" / "tasks" / "stale-task").exists()
