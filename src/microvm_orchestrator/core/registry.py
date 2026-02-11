@@ -29,19 +29,6 @@ class RepoNotGitError(Exception):
         super().__init__(f"Not a git repository: {path}")
 
 
-class AliasCollisionError(Exception):
-    """Raised when an alias already exists with a different path."""
-
-    def __init__(self, alias: str, existing_path: Path, new_path: Path):
-        self.alias = alias
-        self.existing_path = existing_path
-        self.new_path = new_path
-        super().__init__(
-            f"Alias '{alias}' already exists for {existing_path}. "
-            f"Use --alias to specify a different alias."
-        )
-
-
 def _default_registry_path() -> Path:
     """Get the default registry path."""
     return Path.home() / ".microvm-orchestrator" / "allowed-repos.json"
@@ -100,7 +87,6 @@ class RepoRegistry:
 
         Raises:
             RepoNotGitError: If path is not a git repository.
-            AliasCollisionError: If alias exists with a different path.
         """
         path = path.resolve()
 
