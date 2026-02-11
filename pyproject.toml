@@ -44,4 +44,5 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: marks tests as integration tests (may be slow)",
     "slow: marks tests as slow (e.g., e2e tests with real VMs)",
+    "nix: marks tests that require nix-instantiate (Nix evaluation smoke tests)",
 ]

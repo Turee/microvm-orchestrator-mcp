@@ -37,6 +37,9 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "slow: marks tests as slow (e.g., e2e tests with real VMs)"
     )
+    config.addinivalue_line(
+        "markers", "nix: marks tests that require nix-instantiate (Nix evaluation smoke tests)"
+    )
 
 
 # =============================================================================
