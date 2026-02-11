@@ -447,6 +447,45 @@ class TestExtractToken:
         output = f"{token}   \nDone.\n"
         assert _extract_token(output) == token
 
+    # -- ANSI escape codes ----------------------------------------------------
+
+    def test_ansi_color_codes_stripped(self):
+        """ANSI color codes around token are stripped before matching."""
+        token = _fake_token(length=30, seed=25)
+        output = f"\x1b[33m{token}\x1b[0m\n"
+        assert _extract_token(output) == token
+
+    def test_ansi_codes_on_line_wrapped_token(self):
+        """ANSI codes don't prevent continuation line collection."""
+        full = _fake_token(length=80, seed=26)
+        split_at = 50
+        line1 = full[:len("sk-ant-oat01-") + split_at]
+        line2 = full[len("sk-ant-oat01-") + split_at:]
+        output = (
+            f"\x1b[33m{line1}\x1b[0m\n"
+            f"\x1b[33m{line2}\x1b[0m\n"
+            "Store this token securely.\n"
+        )
+        assert _extract_token(output) == full
+
+    def test_ansi_codes_in_real_claude_output(self):
+        """Full claude setup-token output with ANSI escape codes throughout."""
+        part1 = _fake_token(length=80, seed=27)
+        part2 = _fake_token(length=12, seed=28).removeprefix("sk-ant-oat01-")
+        output = (
+            "\x1b[32m\u2713\x1b[0m Long-lived authentication token created successfully!\n"
+            "\n"
+            "Your OAuth token (valid for 1 year):\n"
+            "\n"
+            f"\x1b[33m{part1}\x1b[0m\n"
+            f"\x1b[33m{part2}\x1b[0m\n"
+            "\n"
+            "Store this token securely. You won't be able to see it again.\n"
+            "\n"
+            "Use this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>\n"
+        )
+        assert _extract_token(output) == part1 + part2
+
 
 # =============================================================================
 # Setup-Token CLI Integration Tests

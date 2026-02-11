@@ -17,6 +17,9 @@ _TOKEN_RE = re.compile(r"sk-ant-[A-Za-z0-9_-]+")
 # A continuation line consists entirely of base64url token characters.
 _TOKEN_CONTINUATION_RE = re.compile(r"^[A-Za-z0-9_+/=-]+$")
 
+# ANSI escape sequences (colors, cursor movement, etc.)
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
 
 def _extract_token(output: str) -> str | None:
     """Extract an Anthropic API token from noisy CLI output.
@@ -24,6 +27,8 @@ def _extract_token(output: str) -> str | None:
     Handles tokens that may be line-wrapped across multiple lines.
     Tokens start with ``sk-ant-`` and contain ``[A-Za-z0-9_-]``.
     """
+    # Strip ANSI escape codes (claude CLI uses colors)
+    output = _ANSI_RE.sub("", output)
     lines = output.splitlines()
     token_parts: list[str] = []
     collecting = False
