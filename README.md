@@ -267,6 +267,16 @@ microvm-orchestrator remove myapp
 
 Start the MCP server. Serves all registered repositories.
 
+### `microvm-orchestrator setup-token`
+
+Authenticate with Claude and save the token locally. Runs `claude setup-token` and writes the resulting token to `~/.microvm-orchestrator/token` with `0600` permissions.
+
+```bash
+microvm-orchestrator setup-token
+# Running 'claude setup-token' — follow the prompts to authenticate...
+# Token saved to /Users/you/.microvm-orchestrator/token
+```
+
 ## MCP Tools Reference
 
 ### run_task
@@ -488,6 +498,7 @@ Slot storage persists across tasks, so container images and Nix packages are cac
 |------|-------------|
 | `~/.microvm-orchestrator/allowed-repos.json` | Registered repos allowlist |
 | `~/.microvm-orchestrator/slot-assignments.json` | Repo-to-slot affinity mapping |
+| `~/.microvm-orchestrator/token` | API token (created by `setup-token`) |
 | `.microvm/tasks/<id>/` | Task working directory |
 | `.microvm/tasks/<id>/task.json` | Task metadata and state |
 | `.microvm/tasks/<id>/task.md` | Original task description |
@@ -567,7 +578,7 @@ git branch -d temp
 | "Repo 'x' not registered" | Repo alias not in allowlist | Run `microvm-orchestrator allow /path/to/repo` |
 | "All 10 slots are busy" | No free slots available | Wait for tasks to complete or check `list_slots()` |
 | "No flake.nix found" | Target repo missing flake | Add `flake.nix` with `devShells.default` |
-| "No API key found" | Missing environment variable | Set `ANTHROPIC_API_KEY` or run `claude /login` |
+| "No API key found" | Missing environment variable | Set `ANTHROPIC_API_KEY` or run `microvm-orchestrator setup-token` |
 | "nix-build failed" | Flake evaluation error | Run `nix flake check` in your repo |
 | "Network is not ready" | VM can't reach internet | Check host network connectivity |
 | Task timeout | Long-running task | Increase `timeout_ms` in `wait_next_event` |
@@ -627,7 +638,7 @@ cat .microvm/tasks/<id>/claude-stream.jsonl | jq -s .
 ## Security Considerations
 
 - **Full agent autonomy**: VMs run Claude with `--dangerously-skip-permissions` for unrestricted development
-- **API key handling**: Keys are written to a temp file, read once, then deleted immediately
+- **API key handling**: Token stored in `~/.microvm-orchestrator/token` with `0600` permissions; written to a VM temp file, read once, then deleted
 - **Network access**: VMs have full internet access for npm, API calls, etc.
 - **Git isolation**: Tasks work on clones, never modifying your original repo directly
 - **Hardware isolation**: Complete VM isolation via vfkit hypervisor
