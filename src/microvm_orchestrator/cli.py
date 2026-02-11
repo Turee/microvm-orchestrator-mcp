@@ -12,16 +12,47 @@ import click
 from .core.registry import RepoNotGitError, RepoRegistry, UnknownRepoError
 
 # Token pattern: sk-ant- followed by base64url chars and hyphens.
-# The output may line-wrap, so we strip whitespace before matching.
 _TOKEN_RE = re.compile(r"sk-ant-[A-Za-z0-9_-]+")
+
+# A continuation line consists entirely of base64url token characters.
+_TOKEN_CONTINUATION_RE = re.compile(r"^[A-Za-z0-9_+/=-]+$")
 
 
 def _extract_token(output: str) -> str | None:
-    """Extract an Anthropic API token from noisy CLI output."""
-    # Remove all whitespace so line-wrapped tokens become contiguous
-    collapsed = re.sub(r"\s+", "", output)
-    match = _TOKEN_RE.search(collapsed)
-    return match.group(0) if match else None
+    """Extract an Anthropic API token from noisy CLI output.
+
+    Handles tokens that may be line-wrapped across multiple lines.
+    Tokens start with ``sk-ant-`` and contain ``[A-Za-z0-9_-]``.
+    """
+    lines = output.splitlines()
+    token_parts: list[str] = []
+    collecting = False
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            # Blank lines: skip while collecting, otherwise ignore
+            continue
+
+        if not collecting:
+            match = _TOKEN_RE.search(stripped)
+            if match:
+                token_parts.append(match.group(0))
+                # If the match extends to end-of-line, the token may
+                # continue on the next line.
+                if match.end() == len(stripped):
+                    collecting = True
+                else:
+                    break
+        else:
+            # Accept continuation lines that are purely token characters,
+            # but stop if the line starts a new token.
+            if _TOKEN_CONTINUATION_RE.match(stripped) and not stripped.startswith("sk-ant-"):
+                token_parts.append(stripped)
+            else:
+                break
+
+    return "".join(token_parts) if token_parts else None
 
 
 @click.group()

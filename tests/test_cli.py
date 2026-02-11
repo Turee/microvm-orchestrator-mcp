@@ -2,14 +2,40 @@
 
 from __future__ import annotations
 
+import random
+import string
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
-from microvm_orchestrator.cli import cli
+from microvm_orchestrator.cli import _extract_token, cli
 from microvm_orchestrator.core.registry import RepoNotGitError, UnknownRepoError
+
+
+def _fake_token(
+    prefix: str = "oat01",
+    length: int = 60,
+    *,
+    seed: int = 0,
+    underscores: bool = True,
+    dashes: bool = True,
+) -> str:
+    """Generate a deterministic fake sk-ant- token for testing.
+
+    Produces tokens with realistic structure (mixed case, digits,
+    and optionally underscores/dashes) without embedding anything
+    that could be mistaken for a real credential.
+    """
+    rng = random.Random(seed)
+    alphabet = string.ascii_letters + string.digits
+    if underscores:
+        alphabet += "_"
+    if dashes:
+        alphabet += "-"
+    body = "".join(rng.choice(alphabet) for _ in range(length))
+    return f"sk-ant-{prefix}-{body}"
 
 
 # =============================================================================
@@ -206,7 +232,224 @@ class TestServe:
 
 
 # =============================================================================
-# Setup-Token Tests
+# _extract_token Unit Tests
+# =============================================================================
+
+
+class TestExtractToken:
+    """Unit tests for _extract_token regex parsing."""
+
+    # -- Basic token formats --------------------------------------------------
+
+    def test_simple_token(self):
+        """Plain sk-ant- token on a single line."""
+        token = _fake_token(length=20, seed=1, underscores=False, dashes=False)
+        assert _extract_token(token + "\n") == token
+
+    def test_token_with_underscores(self):
+        """Tokens containing underscores are captured fully."""
+        token = _fake_token("api03", length=20, seed=2, dashes=False)
+        assert _extract_token(token + "\n") == token
+
+    def test_token_with_dashes(self):
+        """Tokens containing internal dashes are captured fully."""
+        token = _fake_token(length=20, seed=3, underscores=False)
+        assert _extract_token(token + "\n") == token
+
+    def test_token_with_mixed_underscores_and_dashes(self):
+        """Tokens with both underscores and dashes."""
+        token = _fake_token(length=30, seed=4)
+        assert _extract_token(token + "\n") == token
+
+    def test_long_oauth_token(self):
+        """Full-length OAuth token with underscores/dashes."""
+        token = _fake_token(length=100, seed=5)
+        assert _extract_token(token + "\n") == token
+
+    def test_api_key_format(self):
+        """API key format (sk-ant-api03-...)."""
+        token = _fake_token("api03", length=40, seed=6)
+        assert _extract_token(token + "\n") == token
+
+    # -- Noisy output ---------------------------------------------------------
+
+    def test_token_surrounded_by_text(self):
+        """Token embedded in a line with surrounding text."""
+        token = _fake_token(length=20, seed=7)
+        output = f"Your token is: {token} (save it)\n"
+        assert _extract_token(output) == token
+
+    def test_noisy_output_with_banner(self):
+        """Token extracted from output with banners and decorations."""
+        token = _fake_token(length=30, seed=8)
+        output = (
+            "Welcome to Claude Code v2.1.39\n"
+            "===========================\n"
+            "Your OAuth token (valid for 1 year):\n"
+            f"{token}\n"
+            "Store this token securely.\n"
+        )
+        assert _extract_token(output) == token
+
+    def test_noisy_output_does_not_absorb_trailing_text(self):
+        """Trailing English text must NOT be included in the token."""
+        token = _fake_token(length=30, seed=9)
+        output = (
+            "Your token:\n"
+            f"{token}\n"
+            "Store this token securely.\n"
+        )
+        result = _extract_token(output)
+        assert result == token
+        assert "Store" not in result
+
+    def test_token_on_line_with_prefix_text(self):
+        """Token preceded by text on the same line."""
+        token = _fake_token("api03", length=20, seed=10)
+        output = f"Token: {token}\n"
+        assert _extract_token(output) == token
+
+    def test_real_claude_output_format(self):
+        """Output format matching real 'claude setup-token' structure."""
+        part1 = _fake_token(length=80, seed=11)
+        part2 = _fake_token(length=12, seed=12).removeprefix("sk-ant-oat01-")
+        output = (
+            "\u2713 Long-lived authentication token created successfully!\n"
+            "\n"
+            "Your OAuth token (valid for 1 year):\n"
+            "\n"
+            f"{part1}\n"
+            f"{part2}\n"
+            "\n"
+            "Store this token securely. You won't be able to see it again.\n"
+            "\n"
+            "Use this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>\n"
+        )
+        result = _extract_token(output)
+        assert result == part1 + part2
+
+    # -- Line-wrapped tokens --------------------------------------------------
+
+    def test_line_wrapped_token(self):
+        """Token split across two lines is reassembled."""
+        full = _fake_token(length=80, seed=13)
+        split_at = 50
+        line1 = full[:len("sk-ant-oat01-") + split_at]
+        line2 = full[len("sk-ant-oat01-") + split_at:]
+        output = f"{line1}\n{line2}\n"
+        result = _extract_token(output)
+        assert result == full
+        assert "\n" not in result
+        assert " " not in result
+
+    def test_line_wrapped_token_with_surrounding_text(self):
+        """Line-wrapped token inside noisy output."""
+        full = _fake_token(length=80, seed=14)
+        split_at = 50
+        line1 = full[:len("sk-ant-oat01-") + split_at]
+        line2 = full[len("sk-ant-oat01-") + split_at:]
+        output = (
+            "Welcome to Claude Code v2.1.39\n"
+            "some ASCII art here\n"
+            "Your OAuth token (valid for 1 year):\n"
+            "\n"
+            "\n"
+            f"{line1}\n"
+            f"{line2}\n"
+            "Store this token securely.\n"
+        )
+        result = _extract_token(output)
+        assert result == full
+
+    def test_line_wrapped_three_lines(self):
+        """Token split across three lines."""
+        full = _fake_token(length=60, seed=15)
+        prefix_len = len("sk-ant-oat01-")
+        p1 = full[:prefix_len + 20]
+        p2 = full[prefix_len + 20:prefix_len + 40]
+        p3 = full[prefix_len + 40:]
+        output = f"{p1}\n{p2}\n{p3}\nDone.\n"
+        result = _extract_token(output)
+        assert result == full
+
+    def test_blank_lines_between_token_start_and_continuation(self):
+        """Blank lines between token lines are skipped."""
+        full = _fake_token(length=40, seed=16)
+        prefix_len = len("sk-ant-oat01-")
+        line1 = full[:prefix_len + 20]
+        line2 = full[prefix_len + 20:]
+        output = f"Your token:\n\n{line1}\n\n{line2}\nDone.\n"
+        result = _extract_token(output)
+        assert result == full
+
+    # -- Edge cases -----------------------------------------------------------
+
+    def test_no_token_returns_none(self):
+        """Returns None when no sk-ant- token is present."""
+        assert _extract_token("No token here\n") is None
+
+    def test_empty_string_returns_none(self):
+        """Returns None for empty input."""
+        assert _extract_token("") is None
+
+    def test_only_whitespace_returns_none(self):
+        """Returns None for whitespace-only input."""
+        assert _extract_token("  \n  \n  \n") is None
+
+    def test_partial_prefix_not_matched(self):
+        """sk-ant without trailing dash+chars is not a valid token."""
+        assert _extract_token("sk-ant\n") is None
+
+    def test_sk_ant_dash_with_chars(self):
+        """Minimal valid token: sk-ant- followed by at least one char."""
+        assert _extract_token("sk-ant-x\n") == "sk-ant-x"
+
+    def test_only_first_token_returned(self):
+        """If multiple tokens appear, only the first is returned."""
+        t1 = _fake_token(length=10, seed=17)
+        t2 = _fake_token(length=10, seed=18)
+        output = f"{t1}\n{t2}\n"
+        assert _extract_token(output) == t1
+
+    def test_continuation_stops_at_sentence(self):
+        """Continuation line with spaces/punctuation is not absorbed."""
+        token = _fake_token(length=20, seed=19)
+        output = f"{token}\nPlease save this token.\n"
+        assert _extract_token(output) == token
+
+    def test_continuation_stops_at_mixed_content(self):
+        """Line starting with token chars but containing spaces is not absorbed."""
+        token = _fake_token(length=20, seed=20)
+        output = f"{token}\nDone with setup\n"
+        assert _extract_token(output) == token
+
+    def test_token_ending_mid_line(self):
+        """Token that ends mid-line does not collect continuations."""
+        token = _fake_token(length=20, seed=21)
+        output = f"Token: {token} is your key\nDEADBEEF\n"
+        assert _extract_token(output) == token
+
+    def test_windows_line_endings(self):
+        """Handles \\r\\n line endings."""
+        token = _fake_token(length=20, seed=22)
+        output = f"Your token:\r\n{token}\r\nDone.\r\n"
+        assert _extract_token(output) == token
+
+    def test_token_with_leading_whitespace(self):
+        """Leading whitespace on token line is stripped."""
+        token = _fake_token(length=20, seed=23)
+        output = f"   {token}\n"
+        assert _extract_token(output) == token
+
+    def test_token_with_trailing_whitespace(self):
+        """Trailing whitespace on token line does not break extraction."""
+        token = _fake_token(length=20, seed=24)
+        output = f"{token}   \nDone.\n"
+        assert _extract_token(output) == token
+
+
+# =============================================================================
+# Setup-Token CLI Integration Tests
 # =============================================================================
 
 
@@ -218,7 +461,8 @@ class TestSetupToken:
         token_dir = tmp_path / ".microvm-orchestrator"
         token_file = token_dir / "token"
 
-        mock_result = MagicMock(returncode=0, stdout="sk-ant-my-token\n", stderr="")
+        token = _fake_token(length=20, seed=100)
+        mock_result = MagicMock(returncode=0, stdout=f"{token}\n", stderr="")
         with patch("microvm_orchestrator.cli.shutil.which", return_value="/usr/bin/claude"), \
              patch("microvm_orchestrator.cli.subprocess.run", return_value=mock_result), \
              patch("microvm_orchestrator.cli.Path.home", return_value=tmp_path):
@@ -226,25 +470,28 @@ class TestSetupToken:
 
         assert result.exit_code == 0
         assert "Token saved" in result.output
-        assert token_file.read_text() == "sk-ant-my-token\n"
+        assert token_file.read_text() == f"{token}\n"
         assert token_file.stat().st_mode & 0o777 == 0o600
 
     def test_setup_token_extracts_from_noisy_output(self, cli_runner: CliRunner, tmp_path: Path):
-        """Token is extracted from decorated claude setup-token output."""
+        """Token is extracted from real claude setup-token output format."""
         token_dir = tmp_path / ".microvm-orchestrator"
         token_file = token_dir / "token"
 
-        # Simulate real claude setup-token output with ASCII art and line wrapping
+        # Simulate claude setup-token output with checkmark, line wrapping, and instructions
+        part1 = _fake_token(length=80, seed=101)
+        part2 = _fake_token(length=12, seed=102).removeprefix("sk-ant-oat01-")
         noisy_output = (
-            "Welcome to Claude Code v2.1.39\n"
-            "some ASCII art here\n"
+            "\u2713 Long-lived authentication token created successfully!\n"
+            "\n"
             "Your OAuth token (valid for 1 year):\n"
             "\n"
+            f"{part1}\n"
+            f"{part2}\n"
             "\n"
+            "Store this token securely. You won't be able to see it again.\n"
             "\n"
-            "sk-ant-oat01-WL9yibLHPuw4SZr5xWbMU-sfJ_9v0viXeIQMBOklBeTUXsf7kBSyPXwZ\n"
-            "VdwIyTIRYUCozX_JQHh8G2fYWXeVeA-EeEiEgAA\n"
-            "Store this token securely.\n"
+            "Use this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>\n"
         )
         mock_result = MagicMock(returncode=0, stdout=noisy_output, stderr="")
         with patch("microvm_orchestrator.cli.shutil.which", return_value="/usr/bin/claude"), \
@@ -254,12 +501,22 @@ class TestSetupToken:
 
         assert result.exit_code == 0
         saved = token_file.read_text().strip()
-        assert saved.startswith("sk-ant-oat01-")
-        assert "WL9yibLHPuw4SZr5xWbMU" in saved
-        assert "EeEiEgAA" in saved
-        # Should be one contiguous token (no whitespace)
-        assert "\n" not in saved
-        assert " " not in saved
+        assert saved == part1 + part2
+
+    def test_setup_token_with_underscored_token(self, cli_runner: CliRunner, tmp_path: Path):
+        """Token with underscores is saved correctly."""
+        token_dir = tmp_path / ".microvm-orchestrator"
+        token_file = token_dir / "token"
+
+        token = _fake_token("api03", length=30, seed=103, dashes=False)
+        mock_result = MagicMock(returncode=0, stdout=f"{token}\n", stderr="")
+        with patch("microvm_orchestrator.cli.shutil.which", return_value="/usr/bin/claude"), \
+             patch("microvm_orchestrator.cli.subprocess.run", return_value=mock_result), \
+             patch("microvm_orchestrator.cli.Path.home", return_value=tmp_path):
+            result = cli_runner.invoke(cli, ["setup-token"], catch_exceptions=False)
+
+        assert result.exit_code == 0
+        assert token_file.read_text().strip() == token
 
     def test_setup_token_claude_not_found(self, cli_runner: CliRunner):
         """Error when claude CLI not on PATH."""
