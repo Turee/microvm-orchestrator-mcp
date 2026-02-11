@@ -321,8 +321,12 @@ class Orchestrator:
         Returns:
             Event information, {"no_running_tasks": true}, or {"timeout": true}
         """
-        # Return immediately if no tasks are running
+        # Return immediately if no tasks are running and no events pending.
+        # Check the queue first: _on_task_exit does emit() then pop(), so
+        # _processes can be empty while an unconsumed event is still queued.
         if not self._processes:
+            if event := self.event_queue._try_pop():
+                return event.to_dict()
             return {"no_running_tasks": True}
 
         event = await self.event_queue.wait_async(timeout_ms)
