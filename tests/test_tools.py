@@ -300,7 +300,7 @@ class TestEdgeCases:
     """Tests for error handling and edge cases."""
 
     async def test_run_task_no_api_key_raises(
-        self, tmp_project: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_project: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ):
         """run_task raises ToolError when no API key available."""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -311,10 +311,65 @@ class TestEdgeCases:
             orch = Orchestrator(repo_path=tmp_project)
             orch.registry.allow(tmp_project, alias="test-project")
 
-        # Mock keychain to also fail
-        with patch("subprocess.run", side_effect=Exception("No keychain")):
+        # Point token file to a non-existent path
+        fake_token = tmp_path / "no-such-token"
+        with patch.object(Orchestrator, "_get_token_file_path", return_value=fake_token):
             with pytest.raises(ToolError, match="No API key found"):
                 await orch.run_task("Test", repo="test-project")
+
+    async def test_get_api_key_reads_token_file(
+        self, tmp_project: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ):
+        """_get_api_key() returns token from file when env vars absent."""
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+
+        token_file = tmp_path / "token"
+        token_file.write_text("sk-ant-test-token\n")
+        token_file.chmod(0o600)
+
+        with patch.object(Orchestrator, "_get_plugin_dir", return_value=tmp_project):
+            orch = Orchestrator(repo_path=tmp_project)
+
+        with patch.object(Orchestrator, "_get_token_file_path", return_value=token_file):
+            assert orch._get_api_key() == "sk-ant-test-token"
+
+    async def test_get_api_key_env_takes_precedence(
+        self, tmp_project: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ):
+        """Env vars take precedence over token file."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
+
+        token_file = tmp_path / "token"
+        token_file.write_text("file-key\n")
+        token_file.chmod(0o600)
+
+        with patch.object(Orchestrator, "_get_plugin_dir", return_value=tmp_project):
+            orch = Orchestrator(repo_path=tmp_project)
+
+        with patch.object(Orchestrator, "_get_token_file_path", return_value=token_file):
+            assert orch._get_api_key() == "env-key"
+
+    async def test_get_api_key_warns_permissive_permissions(
+        self, tmp_project: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog
+    ):
+        """Warns if token file is world-readable."""
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+
+        token_file = tmp_path / "token"
+        token_file.write_text("sk-ant-test-token\n")
+        token_file.chmod(0o644)
+
+        with patch.object(Orchestrator, "_get_plugin_dir", return_value=tmp_project):
+            orch = Orchestrator(repo_path=tmp_project)
+
+        import logging
+        with caplog.at_level(logging.WARNING), \
+             patch.object(Orchestrator, "_get_token_file_path", return_value=token_file):
+            result = orch._get_api_key()
+            assert result == "sk-ant-test-token"
+            assert "overly permissive permissions" in caplog.text
 
     def test_get_task_info_not_found(self, orchestrator: Orchestrator):
         """get_task_info raises ToolError for unknown task."""

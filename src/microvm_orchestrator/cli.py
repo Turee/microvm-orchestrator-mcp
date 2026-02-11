@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 
 import click
@@ -61,6 +63,38 @@ def serve():
     from .server import run
 
     run()
+
+
+@cli.command("setup-token")
+def setup_token():
+    """Authenticate with Claude and save the token locally."""
+    if not shutil.which("claude"):
+        raise click.ClickException(
+            "'claude' CLI not found. Install it first: https://docs.anthropic.com/en/docs/claude-code"
+        )
+
+    click.echo("Running 'claude setup-token' — follow the prompts to authenticate...")
+    result = subprocess.run(
+        ["claude", "setup-token"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise click.ClickException(
+            f"'claude setup-token' failed (exit {result.returncode}): {result.stderr.strip()}"
+        )
+
+    token = result.stdout.strip()
+    if not token:
+        raise click.ClickException("No token received from 'claude setup-token'.")
+
+    token_dir = Path.home() / ".microvm-orchestrator"
+    token_dir.mkdir(parents=True, exist_ok=True)
+    token_file = token_dir / "token"
+    token_file.write_text(token + "\n")
+    token_file.chmod(0o600)
+
+    click.echo(f"Token saved to {token_file}")
 
 
 if __name__ == "__main__":

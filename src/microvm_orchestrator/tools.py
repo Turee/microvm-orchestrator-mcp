@@ -90,37 +90,39 @@ class Orchestrator:
             "Ensure the package is installed correctly."
         )
 
+    @staticmethod
+    def _get_token_file_path() -> Path:
+        """Return the path to the token file."""
+        return Path.home() / ".microvm-orchestrator" / "token"
+
     def _get_api_key(self) -> str:
-        """Get API key from environment or keychain."""
+        """Get API key from environment or token file."""
         # Check environment variables
         if api_key := os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
             return api_key
         if api_key := os.environ.get("ANTHROPIC_API_KEY"):
             return api_key
 
-        # Try macOS keychain
+        # Try token file
+        token_file = self._get_token_file_path()
         try:
-            import subprocess
-            result = subprocess.run(
-                ["security", "find-generic-password", "-s", "Claude Code-credentials", "-a", os.environ.get("USER", ""), "-w"],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            keychain_data = result.stdout.strip()
-
-            # Check if it's JSON
-            if keychain_data.startswith("{"):
-                data = json.loads(keychain_data)
-                if token := data.get("claudeAiOauth", {}).get("accessToken"):
-                    return token
-            return keychain_data
-        except Exception:
+            token = token_file.read_text().strip()
+            if token:
+                # Warn if file is world-readable
+                mode = token_file.stat().st_mode
+                if mode & 0o077:
+                    logger.warning(
+                        "Token file %s has overly permissive permissions (%o). "
+                        "Run: chmod 600 %s",
+                        token_file, mode & 0o777, token_file,
+                    )
+                return token
+        except FileNotFoundError:
             pass
 
         raise ToolError(
             "No API key found. Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN, "
-            "or login with 'claude /login'"
+            "or run 'microvm-orchestrator setup-token'"
         )
 
     def _on_task_exit(self, task: Task, exit_code: int) -> None:

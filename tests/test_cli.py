@@ -203,3 +203,56 @@ class TestServe:
 
         assert result.exit_code == 0
         mock_run.assert_called_once()
+
+
+# =============================================================================
+# Setup-Token Tests
+# =============================================================================
+
+
+class TestSetupToken:
+    """Tests for the 'setup-token' command."""
+
+    def test_setup_token_success(self, cli_runner: CliRunner, tmp_path: Path):
+        """Successful run saves token to file with 0o600."""
+        token_dir = tmp_path / ".microvm-orchestrator"
+        token_file = token_dir / "token"
+
+        mock_result = MagicMock(returncode=0, stdout="sk-ant-my-token\n", stderr="")
+        with patch("microvm_orchestrator.cli.shutil.which", return_value="/usr/bin/claude"), \
+             patch("microvm_orchestrator.cli.subprocess.run", return_value=mock_result), \
+             patch("microvm_orchestrator.cli.Path.home", return_value=tmp_path):
+            result = cli_runner.invoke(cli, ["setup-token"], catch_exceptions=False)
+
+        assert result.exit_code == 0
+        assert "Token saved" in result.output
+        assert token_file.read_text() == "sk-ant-my-token\n"
+        assert token_file.stat().st_mode & 0o777 == 0o600
+
+    def test_setup_token_claude_not_found(self, cli_runner: CliRunner):
+        """Error when claude CLI not on PATH."""
+        with patch("microvm_orchestrator.cli.shutil.which", return_value=None):
+            result = cli_runner.invoke(cli, ["setup-token"])
+
+        assert result.exit_code == 1
+        assert "'claude' CLI not found" in result.output
+
+    def test_setup_token_claude_fails(self, cli_runner: CliRunner):
+        """Error when claude setup-token exits non-zero."""
+        mock_result = MagicMock(returncode=1, stdout="", stderr="auth failed")
+        with patch("microvm_orchestrator.cli.shutil.which", return_value="/usr/bin/claude"), \
+             patch("microvm_orchestrator.cli.subprocess.run", return_value=mock_result):
+            result = cli_runner.invoke(cli, ["setup-token"])
+
+        assert result.exit_code == 1
+        assert "failed" in result.output
+
+    def test_setup_token_empty_token(self, cli_runner: CliRunner):
+        """Error when claude setup-token returns empty output."""
+        mock_result = MagicMock(returncode=0, stdout="", stderr="")
+        with patch("microvm_orchestrator.cli.shutil.which", return_value="/usr/bin/claude"), \
+             patch("microvm_orchestrator.cli.subprocess.run", return_value=mock_result):
+            result = cli_runner.invoke(cli, ["setup-token"])
+
+        assert result.exit_code == 1
+        assert "No token received" in result.output
