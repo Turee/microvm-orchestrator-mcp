@@ -114,6 +114,19 @@ class TestBuildLogPanel:
         )
         assert "Custom" in output
 
+    def test_force_jsonl_passed_through(self):
+        """force_jsonl=True causes JSONL parsing even with plain first line."""
+        import json
+
+        lines = [
+            "boot message",
+            json.dumps({"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hello"}}),
+        ]
+        output = _render(build_log_panel(lines, title="Claude", force_jsonl=True))
+        assert "Claude" in output
+        assert "Hello" in output
+        assert "boot message" in output
+
 
 # --- build_status_bar ---
 
@@ -133,9 +146,24 @@ class TestBuildStatusBar:
     def test_task_tab_active(self):
         output = _render(build_status_bar(active_tab="task"))
         assert "VM Log" in output
+        assert "Claude" in output
         assert "Server Log" in output
 
     def test_server_tab_active(self):
         output = _render(build_status_bar(active_tab="server"))
         assert "VM Log" in output
+        assert "Claude" in output
+        assert "Server Log" in output
+
+    def test_claude_tab_active(self):
+        output = _render(build_status_bar(active_tab="claude"))
+        assert "VM Log" in output
+        assert "Claude" in output
+        assert "Server Log" in output
+
+    def test_all_three_tabs_present(self):
+        """Status bar shows all three tab labels."""
+        output = _render(build_status_bar(active_tab="task"))
+        assert "VM Log" in output
+        assert "Claude" in output
         assert "Server Log" in output

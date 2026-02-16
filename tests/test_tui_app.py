@@ -40,6 +40,7 @@ class TestTUIAppInit:
         assert app._selected == 0
         assert app._log_capture is None
         assert app._tab == "task"
+        assert app._claude_tailer is None
 
     def test_with_orchestrator(self):
         orch = _mock_orchestrator()
@@ -154,19 +155,39 @@ class TestHandleKey:
         app._handle_key("j", task_count=0)
         assert app._selected == 0
 
-    def test_tab_toggles_to_server(self):
+    def test_tab_cycles_task_to_claude(self):
         from microvm_orchestrator.tui.input import KEY_TAB
 
         app = TUIApp()
         assert app._tab == "task"
         app._handle_key(KEY_TAB, task_count=3)
+        assert app._tab == "claude"
+
+    def test_tab_cycles_claude_to_server(self):
+        from microvm_orchestrator.tui.input import KEY_TAB
+
+        app = TUIApp()
+        app._tab = "claude"
+        app._handle_key(KEY_TAB, task_count=3)
         assert app._tab == "server"
 
-    def test_tab_toggles_back_to_task(self):
+    def test_tab_cycles_server_to_task(self):
         from microvm_orchestrator.tui.input import KEY_TAB
 
         app = TUIApp()
         app._tab = "server"
+        app._handle_key(KEY_TAB, task_count=3)
+        assert app._tab == "task"
+
+    def test_tab_full_cycle(self):
+        from microvm_orchestrator.tui.input import KEY_TAB
+
+        app = TUIApp()
+        assert app._tab == "task"
+        app._handle_key(KEY_TAB, task_count=3)
+        assert app._tab == "claude"
+        app._handle_key(KEY_TAB, task_count=3)
+        assert app._tab == "server"
         app._handle_key(KEY_TAB, task_count=3)
         assert app._tab == "task"
 
@@ -227,6 +248,39 @@ class TestUpdateLayout:
         layout = app._build_layout()
         app._update_layout(layout)
         assert app._tailer is None
+
+    def test_claude_tab_creates_claude_tailer(self):
+        t1 = _make_task()
+        app = TUIApp(_mock_orchestrator([t1]))
+        app._tab = "claude"
+        layout = app._build_layout()
+        app._update_layout(layout)
+        assert app._claude_tailer is not None
+        assert app._claude_tailer.path == t1.stream_log_path
+
+    def test_claude_tab_switches_tailer_on_selection_change(self):
+        t1 = _make_task()
+        t2 = _make_task(id="beef5678-0000-0000-0000-000000000000", slot=2)
+        app = TUIApp(_mock_orchestrator([t1, t2]))
+        app._tab = "claude"
+        layout = app._build_layout()
+
+        app._selected = 0
+        app._update_layout(layout)
+        first_tailer = app._claude_tailer
+
+        app._selected = 1
+        app._update_layout(layout)
+        assert app._claude_tailer is not first_tailer
+        assert app._claude_tailer.path == t2.stream_log_path
+
+    def test_claude_tab_clears_tailer_when_no_tasks(self):
+        app = TUIApp(_mock_orchestrator([]))
+        app._tab = "claude"
+        app._claude_tailer = object()  # type: ignore[assignment]
+        layout = app._build_layout()
+        app._update_layout(layout)
+        assert app._claude_tailer is None
 
     def test_server_tab_uses_log_capture(self):
         import logging

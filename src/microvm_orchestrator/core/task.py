@@ -107,6 +107,11 @@ class Task:
         return self.task_dir / "serial.log"
 
     @property
+    def stream_log_path(self) -> Path:
+        """Path to Claude stream-json JSONL log."""
+        return self.task_dir / "claude-stream.jsonl"
+
+    @property
     def result_path(self) -> Path:
         """Path to result.json written by VM."""
         return self.task_dir / "result.json"

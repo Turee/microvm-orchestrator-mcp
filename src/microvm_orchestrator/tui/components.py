@@ -11,6 +11,14 @@ from rich.text import Text
 from ..core.task import Task, TaskStatus
 from .format import format_log_content
 
+# Tab cycling order and display labels
+_TAB_ORDER: list[str] = ["task", "claude", "server"]
+_TAB_LABELS: dict[str, str] = {
+    "task": "VM Log",
+    "claude": "Claude",
+    "server": "Server Log",
+}
+
 # Status -> Rich style mapping
 _STATUS_STYLES: dict[TaskStatus, str] = {
     TaskStatus.PENDING: "yellow",
@@ -60,6 +68,8 @@ def build_log_panel(
     lines: list[str],
     task_id: str | None = None,
     title: str | None = None,
+    *,
+    force_jsonl: bool = False,
 ) -> Panel:
     """Build a Rich Panel displaying log lines.
 
@@ -67,13 +77,15 @@ def build_log_panel(
         lines: Log lines to display.
         task_id: Optional task ID used to derive a default title.
         title: Explicit panel title (overrides task_id-based title).
+        force_jsonl: When True, force JSONL parsing regardless of
+            first-line auto-detection.
 
     Returns:
         A Rich Panel renderable.
     """
     if title is None:
         title = f"Log: {task_id[:8]}" if task_id else "Log"
-    body = format_log_content(lines)
+    body = format_log_content(lines, force_jsonl=force_jsonl)
     return Panel(body, title=title, expand=True)
 
 
@@ -81,7 +93,7 @@ def build_status_bar(active_tab: str = "task") -> Text:
     """Build a status bar showing keybinding hints and active tab indicator.
 
     Args:
-        active_tab: Currently active tab (``"task"`` or ``"server"``).
+        active_tab: Currently active tab (one of ``_TAB_ORDER``).
 
     Returns:
         A Rich Text renderable.
@@ -97,11 +109,13 @@ def build_status_bar(active_tab: str = "task") -> Text:
     bar.append("switch  ")
 
     # Tab indicator
-    if active_tab == "task":
-        bar.append("VM Log", style="bold underline")
-        bar.append(" | Server Log")
-    else:
-        bar.append("VM Log | ")
-        bar.append("Server Log", style="bold underline")
+    for i, tab_key in enumerate(_TAB_ORDER):
+        if i > 0:
+            bar.append(" | ")
+        label = _TAB_LABELS[tab_key]
+        if tab_key == active_tab:
+            bar.append(label, style="bold underline")
+        else:
+            bar.append(label)
 
     return bar

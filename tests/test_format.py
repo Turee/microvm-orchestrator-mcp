@@ -188,6 +188,27 @@ class TestFormatLogContent:
         result = format_log_content(lines)
         assert "plain first" in result.plain
 
+    def test_force_jsonl_with_leading_plain_text(self):
+        """force_jsonl=True processes JSONL even when first line is plain text."""
+        lines = [
+            "NixOS boot message",
+            '{"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hello"}}',
+            '{"type": "content_block_start", "content_block": {"type": "tool_use", "name": "Bash"}}',
+        ]
+        result = format_log_content(lines, force_jsonl=True)
+        plain = result.plain
+        # Plain text passes through, JSONL events are parsed
+        assert "NixOS boot message" in plain
+        assert "Hello" in plain
+        assert "Bash" in plain
+
+    def test_force_jsonl_false_preserves_autodetect(self):
+        """force_jsonl=False (default) still auto-detects plain text."""
+        lines = ["plain first", '{"type": "content_block_delta", "delta": {"type": "text_delta", "text": "x"}}']
+        result = format_log_content(lines, force_jsonl=False)
+        # Auto-detect sees plain first line, treats all as plain
+        assert "plain first" in result.plain
+
 
 # ── Integration with Rich rendering ────────────────────────────
 

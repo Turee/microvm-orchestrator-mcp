@@ -43,23 +43,29 @@ def format_jsonl_line(line: str) -> tuple[str, str] | None:
     return None
 
 
-def format_log_content(raw_lines: list[str]) -> Text:
+def format_log_content(raw_lines: list[str], *, force_jsonl: bool = False) -> Text:
     """Convert raw log lines (possibly JSONL) into styled Rich Text.
 
     Auto-detects JSONL: if the first non-empty line starts with ``{``,
     all lines are processed as stream-json events.  Otherwise they're
     rendered as plain text.
+
+    Args:
+        raw_lines: Lines to format.
+        force_jsonl: When True, skip auto-detection and treat all lines
+            as JSONL.  Non-JSON lines still pass through gracefully.
     """
     if not raw_lines:
         return Text("(no output)", style="dim italic")
 
     # Detect JSONL by checking first non-empty line
-    is_jsonl = False
-    for line in raw_lines:
-        s = line.strip()
-        if s:
-            is_jsonl = s.startswith("{")
-            break
+    is_jsonl = force_jsonl
+    if not is_jsonl:
+        for line in raw_lines:
+            s = line.strip()
+            if s:
+                is_jsonl = s.startswith("{")
+                break
 
     if not is_jsonl:
         return Text("\n".join(raw_lines))
