@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from microvm_orchestrator.core.task import Task, TaskStatus
 from microvm_orchestrator.tui.app import TUIApp
+from microvm_orchestrator.tui.log_capture import LogCapture
 
 
 def _make_task(
@@ -37,11 +38,18 @@ class TestTUIAppInit:
         app = TUIApp()
         assert app._orchestrator is None
         assert app._selected == 0
+        assert app._log_capture is None
+        assert app._tab == "task"
 
     def test_with_orchestrator(self):
         orch = _mock_orchestrator()
         app = TUIApp(orch)
         assert app._orchestrator is orch
+
+    def test_with_log_capture(self):
+        lc = LogCapture()
+        app = TUIApp(log_capture=lc)
+        assert app._log_capture is lc
 
 
 class TestGetTasks:
@@ -146,6 +154,22 @@ class TestHandleKey:
         app._handle_key("j", task_count=0)
         assert app._selected == 0
 
+    def test_tab_toggles_to_server(self):
+        from microvm_orchestrator.tui.input import KEY_TAB
+
+        app = TUIApp()
+        assert app._tab == "task"
+        app._handle_key(KEY_TAB, task_count=3)
+        assert app._tab == "server"
+
+    def test_tab_toggles_back_to_task(self):
+        from microvm_orchestrator.tui.input import KEY_TAB
+
+        app = TUIApp()
+        app._tab = "server"
+        app._handle_key(KEY_TAB, task_count=3)
+        assert app._tab == "task"
+
 
 class TestBuildLayout:
     def test_layout_has_expected_regions(self):
@@ -203,6 +227,23 @@ class TestUpdateLayout:
         layout = app._build_layout()
         app._update_layout(layout)
         assert app._tailer is None
+
+    def test_server_tab_uses_log_capture(self):
+        import logging
+
+        lc = LogCapture()
+        lc.setFormatter(logging.Formatter("%(message)s"))
+        record = logging.LogRecord(
+            name="test", level=logging.INFO, pathname="", lineno=0,
+            msg="server hello", args=(), exc_info=None,
+        )
+        lc.emit(record)
+
+        app = TUIApp(_mock_orchestrator([]), log_capture=lc)
+        app._tab = "server"
+        layout = app._build_layout()
+        app._update_layout(layout)
+        # The log panel should exist and not raise
 
 
 class TestRun:

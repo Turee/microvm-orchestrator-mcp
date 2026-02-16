@@ -56,23 +56,32 @@ def build_task_table(tasks: Sequence[Task], selected_index: int) -> Table:
     return table
 
 
-def build_log_panel(lines: list[str], task_id: str | None = None) -> Panel:
-    """Build a Rich Panel displaying log lines for a task.
+def build_log_panel(
+    lines: list[str],
+    task_id: str | None = None,
+    title: str | None = None,
+) -> Panel:
+    """Build a Rich Panel displaying log lines.
 
     Args:
         lines: Log lines to display.
-        task_id: Optional task ID for the panel title.
+        task_id: Optional task ID used to derive a default title.
+        title: Explicit panel title (overrides task_id-based title).
 
     Returns:
         A Rich Panel renderable.
     """
-    title = f"Log: {task_id[:8]}" if task_id else "Log"
+    if title is None:
+        title = f"Log: {task_id[:8]}" if task_id else "Log"
     body = format_log_content(lines)
     return Panel(body, title=title, expand=True)
 
 
-def build_status_bar() -> Text:
-    """Build a status bar showing keybinding hints.
+def build_status_bar(active_tab: str = "task") -> Text:
+    """Build a status bar showing keybinding hints and active tab indicator.
+
+    Args:
+        active_tab: Currently active tab (``"task"`` or ``"server"``).
 
     Returns:
         A Rich Text renderable.
@@ -83,5 +92,16 @@ def build_status_bar() -> Text:
     bar.append("[j/k]", style="bold")
     bar.append("nav  ")
     bar.append("[1-9]", style="bold")
-    bar.append("select")
+    bar.append("select  ")
+    bar.append("[tab]", style="bold")
+    bar.append("switch  ")
+
+    # Tab indicator
+    if active_tab == "task":
+        bar.append("VM Log", style="bold underline")
+        bar.append(" | Server Log")
+    else:
+        bar.append("VM Log | ")
+        bar.append("Server Log", style="bold underline")
+
     return bar

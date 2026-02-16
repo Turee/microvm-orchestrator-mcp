@@ -9,7 +9,8 @@ from rich.layout import Layout
 from rich.live import Live
 
 from .components import build_log_panel, build_status_bar, build_task_table
-from .input import KEY_DOWN, KEY_UP, InputReader
+from .input import KEY_DOWN, KEY_TAB, KEY_UP, InputReader
+from .log_capture import LogCapture
 from .tail import LogTailer
 
 if TYPE_CHECKING:
@@ -25,9 +26,15 @@ class TUIApp:
     at ~10 FPS on the alternate screen buffer.
     """
 
-    def __init__(self, orchestrator: Optional[Orchestrator] = None) -> None:
+    def __init__(
+        self,
+        orchestrator: Optional[Orchestrator] = None,
+        log_capture: Optional[LogCapture] = None,
+    ) -> None:
         self._orchestrator = orchestrator
+        self._log_capture = log_capture
         self._selected: int = 0
+        self._tab: str = "task"
         self._tailer: Optional[LogTailer] = None
         self._running = False
 
@@ -63,23 +70,28 @@ class TUIApp:
         # Update task table
         layout["tasks"].update(build_task_table(tasks, self._selected))
 
-        # Update log panel for selected task
-        selected_task = tasks[self._selected] if tasks else None
-        if selected_task:
-            # Lazily create or switch tailer when selection changes
-            log_path = selected_task.log_path
-            if self._tailer is None or self._tailer.path != log_path:
-                self._tailer = LogTailer(log_path)
-            self._tailer.poll()
+        # Update log panel: server tab or VM task log tab
+        if self._tab == "server" and self._log_capture is not None:
             layout["log"].update(
-                build_log_panel(self._tailer.get_lines(), selected_task.id)
+                build_log_panel(self._log_capture.get_lines(), title="Server Log")
             )
         else:
-            self._tailer = None
-            layout["log"].update(build_log_panel([]))
+            selected_task = tasks[self._selected] if tasks else None
+            if selected_task:
+                # Lazily create or switch tailer when selection changes
+                log_path = selected_task.log_path
+                if self._tailer is None or self._tailer.path != log_path:
+                    self._tailer = LogTailer(log_path)
+                self._tailer.poll()
+                layout["log"].update(
+                    build_log_panel(self._tailer.get_lines(), selected_task.id)
+                )
+            else:
+                self._tailer = None
+                layout["log"].update(build_log_panel([]))
 
         # Status bar
-        layout["footer"].update(build_status_bar())
+        layout["footer"].update(build_status_bar(active_tab=self._tab))
 
     def _handle_key(self, key: Optional[str], task_count: int) -> None:
         """Process a single key press, updating selection state."""
@@ -88,6 +100,8 @@ class TUIApp:
 
         if key == "q":
             self._running = False
+        elif key == KEY_TAB:
+            self._tab = "server" if self._tab == "task" else "task"
         elif key in ("j", KEY_DOWN):
             if task_count > 0:
                 self._selected = min(self._selected + 1, task_count - 1)

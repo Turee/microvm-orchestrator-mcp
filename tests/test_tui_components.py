@@ -103,6 +103,17 @@ class TestBuildLogPanel:
         assert "Log" in output
         assert "hello" in output
 
+    def test_custom_title(self):
+        output = _render(build_log_panel(["data"], title="Server Log"))
+        assert "Server Log" in output
+        assert "data" in output
+
+    def test_title_overrides_task_id(self):
+        output = _render(
+            build_log_panel(["x"], task_id="abcd1234", title="Custom")
+        )
+        assert "Custom" in output
+
 
 # --- build_status_bar ---
 
@@ -116,3 +127,15 @@ class TestBuildStatusBar:
         assert "nav" in output
         assert "[1-9]" in output
         assert "select" in output
+        assert "[tab]" in output
+        assert "switch" in output
+
+    def test_task_tab_active(self):
+        output = _render(build_status_bar(active_tab="task"))
+        assert "VM Log" in output
+        assert "Server Log" in output
+
+    def test_server_tab_active(self):
+        output = _render(build_status_bar(active_tab="server"))
+        assert "VM Log" in output
+        assert "Server Log" in output

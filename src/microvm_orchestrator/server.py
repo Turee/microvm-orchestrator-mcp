@@ -221,10 +221,22 @@ def run(headless: bool = False) -> None:
         _run_mcp_server()
         return
 
-    # Suppress uvicorn access/error logs when TUI owns the terminal
-    logging.getLogger("uvicorn").setLevel(logging.WARNING)
-    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-    logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+    # Redirect all logging into a memory buffer so the TUI stays clean.
+    from .tui.log_capture import LogCapture
+
+    log_capture = LogCapture()
+    log_capture.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+    )
+
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.addHandler(log_capture)
+    root.setLevel(logging.INFO)
+
+    # Clear uvicorn's own handlers so they don't bypass our capture
+    for name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
+        logging.getLogger(name).handlers.clear()
 
     # Ensure orchestrator is created before starting threads so both
     # the MCP handlers and the TUI share the same instance.
@@ -237,7 +249,7 @@ def run(headless: bool = False) -> None:
     # TUI runs on the main thread (required for terminal raw input / signals)
     from .tui import start_tui
 
-    start_tui(orchestrator)
+    start_tui(orchestrator, log_capture=log_capture)
 
 
 if __name__ == "__main__":
