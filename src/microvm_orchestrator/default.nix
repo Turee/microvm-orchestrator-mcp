@@ -7,6 +7,8 @@
   # Optional arguments
   varDir ? "",
   containerDir ? "",
+  mem ? "4096",
+  vcpu ? "4",
 }:
 
 let
@@ -30,6 +32,10 @@ let
   effectiveVarDir = if varDir == "" then null else varDir;
   effectiveContainerDir = if containerDir == "" then null else containerDir;
 
+  # Convert string args to integers (--argstr always passes strings)
+  memInt = builtins.fromJSON mem;
+  vcpuInt = builtins.fromJSON vcpu;
+
   # Build the NixOS configuration using the proper evalModules approach
   nixosConfiguration = import "${toString <nixpkgs>}/nixos/lib/eval-config.nix" {
     system = guestSystem;
@@ -39,6 +45,8 @@ let
         inherit taskDir nixStoreImage socketPath hostPkgs;
         varDir = effectiveVarDir;
         containerDir = effectiveContainerDir;
+        mem = memInt;
+        vcpu = vcpuInt;
       })
       # Disable the virtiofsd module — vfkit handles virtiofs natively via
       # macOS Virtualization.framework, and virtiofsd is Linux-only.

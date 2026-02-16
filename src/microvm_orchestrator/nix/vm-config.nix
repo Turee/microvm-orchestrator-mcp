@@ -5,6 +5,8 @@
   nixStoreImage,
   socketPath,
   hostPkgs,
+  mem ? 4096,
+  vcpu ? 4,
 }:
 { pkgs, lib, ... }:
 let
@@ -199,8 +201,7 @@ in
     };
 
     # Allocate reasonable resources for Claude Code
-    mem = 4096;
-    vcpu = 4;
+    inherit mem vcpu;
     balloon = false;
   };
 

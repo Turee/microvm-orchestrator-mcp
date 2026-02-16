@@ -58,6 +58,8 @@ class TestBuildVM:
                     "MICROVM_NIX_STORE_IMAGE": "/tmp/nix-store.img",
                     "DELEGATE_SOCKET": "/tmp/socket",
                     "MICROVM_SLOT": "1",
+                    "MICROVM_MEM": "8192",
+                    "MICROVM_VCPU": "8",
                 },
                 slot=1,
             )
@@ -77,6 +79,11 @@ class TestBuildVM:
             assert "/tmp/task" in cmd
             assert "nixStoreImage" in cmd
             assert "/tmp/nix-store.img" in cmd
+            # mem/vcpu are passed as --argstr
+            assert "mem" in cmd
+            assert "8192" in cmd
+            assert "vcpu" in cmd
+            assert "8" in cmd
             # Result symlink is in writable cache directory
             cmd_str = " ".join(cmd)
             assert ".microvm-orchestrator/nix-cache/result-mcp-1" in cmd_str
@@ -262,6 +269,8 @@ class TestVMProcess:
                 "MICROVM_NIX_STORE_IMAGE": str(tmp_path / "nix-store.img"),
                 "DELEGATE_SOCKET": str(tmp_path / "socket"),
                 "MICROVM_SLOT": "1",
+                "MICROVM_MEM": "4096",
+                "MICROVM_VCPU": "4",
             },
         )
 
@@ -431,6 +440,29 @@ class TestPrepareVMEnv:
         assert env["MICROVM_CONTAINER_DIR"] == str(slot_dir / "container-storage")
         assert env["MICROVM_NIX_STORE_IMAGE"] == str(slot_dir / "nix-store.img")
         assert env["MICROVM_PACKAGE"] == "claude-microvm"
+        assert env["MICROVM_MEM"] == "4096"
+        assert env["MICROVM_VCPU"] == "4"
+
+    def test_prepare_vm_env_custom_resources(self, sample_task: Task, tmp_path: Path):
+        """Returns custom mem/vcpu when specified."""
+        with patch("microvm_orchestrator.core.vm.get_slot_dir") as mock_slot:
+            slot_dir = tmp_path / "slots" / "1"
+            slot_dir.mkdir(parents=True)
+            (slot_dir / "var").mkdir()
+            (slot_dir / "container-storage").mkdir()
+            mock_slot.return_value = slot_dir
+
+            with patch("microvm_orchestrator.core.vm.ensure_slot_initialized", return_value=slot_dir):
+                env = prepare_vm_env(
+                    task=sample_task,
+                    api_key="test-key",
+                    start_ref="abc123",
+                    mem=8192,
+                    vcpu=8,
+                )
+
+        assert env["MICROVM_MEM"] == "8192"
+        assert env["MICROVM_VCPU"] == "8"
 
 
 # =============================================================================

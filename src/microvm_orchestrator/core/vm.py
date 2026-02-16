@@ -72,6 +72,8 @@ def build_vm(
         "MICROVM_NIX_STORE_IMAGE": "nixStoreImage",
         "DELEGATE_SOCKET": "socketPath",
         "MICROVM_SLOT": "slot",
+        "MICROVM_MEM": "mem",
+        "MICROVM_VCPU": "vcpu",
     }
 
     for env_var, arg_name in arg_mapping.items():
@@ -329,7 +331,9 @@ def ensure_slot_initialized(slot: int) -> Path:
     return slot_dir
 
 
-def prepare_vm_env(task: Task, api_key: str, start_ref: str) -> dict[str, str]:
+def prepare_vm_env(
+    task: Task, api_key: str, start_ref: str, *, mem: int = 4096, vcpu: int = 4,
+) -> dict[str, str]:
     """Prepare environment variables for VM execution."""
     slot_dir = ensure_slot_initialized(task.slot)
 
@@ -344,6 +348,8 @@ def prepare_vm_env(task: Task, api_key: str, start_ref: str) -> dict[str, str]:
         "MICROVM_CONTAINER_DIR": str(slot_dir / "container-storage"),
         "MICROVM_NIX_STORE_IMAGE": str(slot_dir / "nix-store.img"),
         "MICROVM_PACKAGE": "claude-microvm",
+        "MICROVM_MEM": str(mem),
+        "MICROVM_VCPU": str(vcpu),
     }
 
 

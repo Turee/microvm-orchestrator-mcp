@@ -28,7 +28,7 @@ def get_orchestrator() -> Orchestrator:
 
 
 @mcp.tool()
-async def run_task(description: str, repo: str, model: str = "") -> dict:
+async def run_task(description: str, repo: str, model: str = "", mem: int = 4096, vcpu: int = 4) -> dict:
     """Start a new task in an isolated microVM.
 
     Args:
@@ -40,13 +40,15 @@ async def run_task(description: str, repo: str, model: str = "") -> dict:
             available repositories. The alias is the repository name, not the path.
         model: Optional model to use for Claude in the VM (e.g.
             'claude-sonnet-4-5-20250929'). If empty, uses Claude's default.
+        mem: Memory in MB for the microVM (default 4096).
+        vcpu: Number of virtual CPUs for the microVM (default 4).
 
     Returns:
         {"task_id": str}
     """
     try:
         orchestrator = get_orchestrator()
-        return await orchestrator.run_task(description, repo, model=model)
+        return await orchestrator.run_task(description, repo, model=model, mem=mem, vcpu=vcpu)
     except ToolError as e:
         return {"error": str(e)}
     except Exception as e:

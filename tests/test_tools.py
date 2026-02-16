@@ -77,6 +77,28 @@ class TestRunTask:
         call_kwargs = mock_orchestrator_deps["write_files"].call_args
         assert call_kwargs[1]["model"] == ""
 
+    async def test_run_task_passes_mem_vcpu_to_prepare_env(
+        self, orchestrator: Orchestrator, mock_orchestrator_deps
+    ):
+        """run_task passes mem and vcpu to prepare_vm_env."""
+        await orchestrator.run_task("Test", repo="project", mem=8192, vcpu=8)
+
+        mock_orchestrator_deps["prepare_env"].assert_called_once()
+        call_kwargs = mock_orchestrator_deps["prepare_env"].call_args
+        assert call_kwargs[1]["mem"] == 8192
+        assert call_kwargs[1]["vcpu"] == 8
+
+    async def test_run_task_default_mem_vcpu(
+        self, orchestrator: Orchestrator, mock_orchestrator_deps
+    ):
+        """run_task passes default mem and vcpu when not specified."""
+        await orchestrator.run_task("Test", repo="project")
+
+        mock_orchestrator_deps["prepare_env"].assert_called_once()
+        call_kwargs = mock_orchestrator_deps["prepare_env"].call_args
+        assert call_kwargs[1]["mem"] == 4096
+        assert call_kwargs[1]["vcpu"] == 4
+
     async def test_run_task_marks_failed_on_error(
         self, orchestrator: Orchestrator, mock_orchestrator_deps
     ):
