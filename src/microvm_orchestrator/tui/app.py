@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import TYPE_CHECKING, Optional
+
+logger = logging.getLogger(__name__)
 
 from rich.layout import Layout
 from rich.live import Live
@@ -145,20 +148,25 @@ class TUIApp:
                 layout,
                 refresh_per_second=10,
                 screen=True,
-            ):
+                auto_refresh=False,
+            ) as live:
                 while self._running:
                     start = time.monotonic()
 
-                    # Poll input (non-blocking)
-                    key = reader.read_key(timeout=0.0)
-                    tasks = self._get_tasks()
-                    self._handle_key(key, len(tasks))
+                    try:
+                        # Poll input (non-blocking)
+                        key = reader.read_key(timeout=0.0)
+                        tasks = self._get_tasks()
+                        self._handle_key(key, len(tasks))
 
-                    if not self._running:
-                        break
+                        if not self._running:
+                            break
 
-                    # Update display
-                    self._update_layout(layout)
+                        # Update display
+                        self._update_layout(layout)
+                        live.refresh()
+                    except Exception:
+                        logger.exception("TUI render error")
 
                     # Sleep remainder of frame
                     elapsed = time.monotonic() - start

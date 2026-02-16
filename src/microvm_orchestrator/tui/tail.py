@@ -27,7 +27,7 @@ class LogTailer:
                 f.seek(self._pos)
                 new_data = f.read()
                 self._pos = f.tell()
-        except FileNotFoundError:
+        except (OSError, ValueError):
             return
 
         if not new_data:

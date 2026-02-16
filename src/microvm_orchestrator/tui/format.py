@@ -3,8 +3,19 @@
 from __future__ import annotations
 
 import json
+import re
 
 from rich.text import Text
+
+# Strip ANSI escape sequences (CSI, OSC, etc.) and C0 control chars except \n \t
+_ANSI_RE = re.compile(r"\x1b[\[\]()#;?]*[0-9;]*[A-Za-z@`]|\x1b[()][AB012]")
+_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _sanitize_line(line: str) -> str:
+    """Strip ANSI escapes and control characters from a log line."""
+    line = _ANSI_RE.sub("", line)
+    return _CTRL_RE.sub("", line)
 
 
 def format_jsonl_line(line: str) -> tuple[str, str] | None:
@@ -68,7 +79,7 @@ def format_log_content(raw_lines: list[str], *, force_jsonl: bool = False) -> Te
                 break
 
     if not is_jsonl:
-        return Text("\n".join(raw_lines))
+        return Text("\n".join(_sanitize_line(l) for l in raw_lines))
 
     result = Text()
     first = True

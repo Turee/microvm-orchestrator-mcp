@@ -111,3 +111,30 @@ def test_multiple_polls_no_new_data(tmp_path: Path) -> None:
     tailer.poll()
     tailer.poll()
     assert tailer.get_lines() == ["line1"]
+
+
+def test_permission_error_handled(tmp_path: Path) -> None:
+    """PermissionError during poll() should not raise."""
+    log_file = tmp_path / "test.log"
+    log_file.write_text("line1\n")
+
+    tailer = LogTailer(log_file)
+    tailer.poll()
+    assert tailer.get_lines() == ["line1"]
+
+    # Make file unreadable
+    log_file.chmod(0o000)
+    try:
+        tailer.poll()  # Should not raise
+        # Lines from previous poll are still there
+        assert tailer.get_lines() == ["line1"]
+    finally:
+        log_file.chmod(0o644)
+
+
+def test_oserror_handled(tmp_path: Path) -> None:
+    """General OSError during poll() should not raise."""
+    # Point tailer at a directory (opening a dir for reading raises OSError)
+    tailer = LogTailer(tmp_path)
+    tailer.poll()  # Should not raise
+    assert tailer.get_lines() == []

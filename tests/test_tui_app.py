@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from microvm_orchestrator.core.task import Task, TaskStatus
 from microvm_orchestrator.tui.app import TUIApp
@@ -319,3 +319,91 @@ class TestRun:
             app._running = True
             app._handle_key("q", 0)
             assert app._running is False
+
+    def test_live_created_with_auto_refresh_false(self):
+        """Live should be created with auto_refresh=False to prevent the refresh thread."""
+        app = TUIApp()
+
+        live_kwargs = {}
+
+        original_live_init = None
+
+        class CaptureLive:
+            """Capture Live() kwargs and act as a context manager."""
+
+            def __init__(self, *args, **kwargs):
+                live_kwargs.update(kwargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+            def refresh(self):
+                pass
+
+        key_calls = 0
+
+        def fake_read_key(timeout=0.0):
+            nonlocal key_calls
+            key_calls += 1
+            return "q"
+
+        with patch("microvm_orchestrator.tui.app.Live", CaptureLive):
+            with patch("microvm_orchestrator.tui.app.InputReader") as MockReader:
+                mock_reader = MagicMock()
+                mock_reader.read_key = fake_read_key
+                mock_reader.__enter__ = MagicMock(return_value=mock_reader)
+                mock_reader.__exit__ = MagicMock(return_value=False)
+                MockReader.return_value = mock_reader
+
+                app.run()
+
+        assert live_kwargs.get("auto_refresh") is False
+
+    def test_update_layout_exception_does_not_crash_loop(self):
+        """An exception in _update_layout should be caught, not crash the loop."""
+        app = TUIApp()
+
+        call_count = 0
+
+        def exploding_update(layout):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("render boom")
+            # Second call: let it succeed (after 'q' is pressed)
+
+        def fake_read_key(timeout=0.0):
+            # Return None first time (triggering the error path), then 'q'
+            if call_count == 0:
+                return None
+            return "q"
+
+        class FakeLive:
+            def __init__(self, *a, **kw):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+            def refresh(self):
+                pass
+
+        with patch("microvm_orchestrator.tui.app.Live", FakeLive):
+            with patch("microvm_orchestrator.tui.app.InputReader") as MockReader:
+                mock_reader = MagicMock()
+                mock_reader.read_key = fake_read_key
+                mock_reader.__enter__ = MagicMock(return_value=mock_reader)
+                mock_reader.__exit__ = MagicMock(return_value=False)
+                MockReader.return_value = mock_reader
+
+                with patch.object(app, "_update_layout", side_effect=exploding_update):
+                    app.run()  # Should NOT raise
+
+        assert call_count >= 1  # The error was hit at least once
+        assert app._running is False  # Loop exited cleanly

@@ -204,8 +204,24 @@ async def list_slots() -> dict:
 
 
 def _run_mcp_server() -> None:
-    """Run the MCP server (blocking). Intended for use in a daemon thread."""
-    mcp.run(transport="streamable-http")
+    """Run the MCP server (blocking). Intended for use in a daemon thread.
+
+    Uses uvicorn directly with ``log_config=None`` to prevent uvicorn from
+    creating its own StreamHandlers that write to stdout/stderr (which Rich.Live
+    redirects, causing cross-thread lock contention and display freezes).
+    """
+    import uvicorn
+
+    app = mcp.streamable_http_app()
+    config = uvicorn.Config(
+        app,
+        host="127.0.0.1",
+        port=8765,
+        log_config=None,
+        log_level="info",
+    )
+    server = uvicorn.Server(config)
+    server.run()
 
 
 def run(headless: bool = False) -> None:
@@ -234,9 +250,13 @@ def run(headless: bool = False) -> None:
     root.addHandler(log_capture)
     root.setLevel(logging.INFO)
 
-    # Clear uvicorn's own handlers so they don't bypass our capture
+    # Clear uvicorn's own handlers and ensure propagation to root (LogCapture).
+    # Combined with log_config=None in _run_mcp_server(), this prevents uvicorn
+    # from recreating StreamHandlers that write to stdout/stderr.
     for name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
-        logging.getLogger(name).handlers.clear()
+        uv_logger = logging.getLogger(name)
+        uv_logger.handlers.clear()
+        uv_logger.propagate = True
 
     # Ensure orchestrator is created before starting threads so both
     # the MCP handlers and the TUI share the same instance.

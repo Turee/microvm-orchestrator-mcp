@@ -6,7 +6,7 @@ from io import StringIO
 from rich.console import Console
 from rich.text import Text
 
-from microvm_orchestrator.tui.format import format_jsonl_line, format_log_content
+from microvm_orchestrator.tui.format import _sanitize_line, format_jsonl_line, format_log_content
 
 
 def _render(text: Text) -> str:
@@ -251,3 +251,40 @@ class TestRichRendering:
         assert "Bug fixed successfully" in plain
         assert "$0.0234" in plain
         assert "12.0s" in plain
+
+
+# ── Sanitize tests ─────────────────────────────────────────────
+
+
+class TestSanitizeLine:
+    def test_strips_ansi_color_codes(self):
+        assert _sanitize_line("\x1b[31mred\x1b[0m") == "red"
+
+    def test_strips_cursor_movement(self):
+        assert _sanitize_line("\x1b[2Jhello\x1b[H") == "hello"
+
+    def test_strips_control_characters(self):
+        # BEL (\x07), BS (\x08), etc. are stripped; \n and \t are kept
+        assert _sanitize_line("hello\x07\x08world") == "helloworld"
+
+    def test_preserves_tabs_and_normal_text(self):
+        assert _sanitize_line("col1\tcol2") == "col1\tcol2"
+
+    def test_mixed_ansi_and_control(self):
+        line = "\x1b[1;32mOK\x1b[0m\x00\x07 done"
+        assert _sanitize_line(line) == "OK done"
+
+    def test_clean_line_unchanged(self):
+        assert _sanitize_line("just normal text") == "just normal text"
+
+
+class TestFormatLogContentSanitization:
+    def test_plain_text_ansi_stripped(self):
+        """ANSI escapes in plain-text (non-JSONL) serial output are stripped."""
+        lines = ["\x1b[32mboot\x1b[0m", "normal line", "\x1b[2J\x1b[Hclear"]
+        result = format_log_content(lines)
+        plain = result.plain
+        assert "\x1b" not in plain
+        assert "boot" in plain
+        assert "normal line" in plain
+        assert "clear" in plain
