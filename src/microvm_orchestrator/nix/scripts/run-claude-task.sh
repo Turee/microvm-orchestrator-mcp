@@ -18,6 +18,13 @@ if [ -f "$TASK_ID_FILE" ]; then
   TASK_ID=$(cat "$TASK_ID_FILE")
 fi
 
+# Read model selection if available
+MODEL=""
+MODEL_FILE="$WORKSPACE/model"
+if [ -f "$MODEL_FILE" ]; then
+  MODEL=$(cat "$MODEL_FILE")
+fi
+
 # Avoid writing to /root/.gitconfig (stale lockfiles can break boot).
 # Instead, provide safe.directory via an isolated global git config file.
 ROOT_GIT_CONFIG="/tmp/gitconfig-root"
@@ -306,16 +313,22 @@ fi
 cd "$REPO_DIR"
 TASK=\$(cat "/workspace/task.md")
 
+# Build optional --model flag
+MODEL_FLAG=""
+if [ -n "$MODEL" ]; then
+  MODEL_FLAG="--model $MODEL"
+fi
+
 # Try native arch first, fallback to x86_64 if needed (Rosetta translation)
 # Use path:. to avoid git ownership checks (treats as plain directory instead of git repo)
 # First attempt: try native devShell
 if @nix@/bin/nix develop path:. --command true 2>/tmp/nix-develop-test.err; then
   echo "Using native aarch64-linux devShell" >&2
-  exec @nix@/bin/nix develop path:. --command @nodejs@/bin/npx -y @anthropic-ai/claude-code@latest --dangerously-skip-permissions --output-format stream-json --verbose -p "\$TASK"
+  exec @nix@/bin/nix develop path:. --command @nodejs@/bin/npx -y @anthropic-ai/claude-code@latest --dangerously-skip-permissions --output-format stream-json --verbose \$MODEL_FLAG -p "\$TASK"
 else
   echo "Native devShell not available (see /tmp/nix-develop-test.err), trying x86_64-linux via Rosetta..." >&2
   cat /tmp/nix-develop-test.err >&2 || true
-  exec @nix@/bin/nix develop path:.#devShells.x86_64-linux.default --command @nodejs@/bin/npx -y @anthropic-ai/claude-code@latest --dangerously-skip-permissions --output-format stream-json --verbose -p "\$TASK"
+  exec @nix@/bin/nix develop path:.#devShells.x86_64-linux.default --command @nodejs@/bin/npx -y @anthropic-ai/claude-code@latest --dangerously-skip-permissions --output-format stream-json --verbose \$MODEL_FLAG -p "\$TASK"
 fi
 EOF
 chmod 755 "$WRAPPER"

@@ -57,6 +57,26 @@ class TestRunTask:
         call_args = mock_orchestrator_deps["write_files"].call_args
         assert call_args[0][1] == "env-api-key"  # api_key positional arg
 
+    async def test_run_task_passes_model_to_write_task_files(
+        self, orchestrator: Orchestrator, mock_orchestrator_deps
+    ):
+        """run_task passes model parameter through to write_task_files."""
+        await orchestrator.run_task("Test", repo="project", model="claude-sonnet-4-5-20250929")
+
+        mock_orchestrator_deps["write_files"].assert_called_once()
+        call_kwargs = mock_orchestrator_deps["write_files"].call_args
+        assert call_kwargs[1]["model"] == "claude-sonnet-4-5-20250929"
+
+    async def test_run_task_passes_empty_model_by_default(
+        self, orchestrator: Orchestrator, mock_orchestrator_deps
+    ):
+        """run_task passes empty model when not specified."""
+        await orchestrator.run_task("Test", repo="project")
+
+        mock_orchestrator_deps["write_files"].assert_called_once()
+        call_kwargs = mock_orchestrator_deps["write_files"].call_args
+        assert call_kwargs[1]["model"] == ""
+
     async def test_run_task_marks_failed_on_error(
         self, orchestrator: Orchestrator, mock_orchestrator_deps
     ):

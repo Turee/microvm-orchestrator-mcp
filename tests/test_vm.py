@@ -215,6 +215,30 @@ class TestWriteTaskFiles:
         # Check only user has read/write
         assert stat.S_IMODE(mode) == 0o600
 
+    def test_write_model_file(self, tmp_path: Path, sample_task: Task):
+        """Writes model file when model is specified."""
+        sample_task._task_dir = tmp_path / "task"
+
+        write_task_files(sample_task, api_key="test-key", start_ref="abc123", model="claude-sonnet-4-5-20250929")
+
+        assert (sample_task.task_dir / "model").read_text() == "claude-sonnet-4-5-20250929"
+
+    def test_no_model_file_when_empty(self, tmp_path: Path, sample_task: Task):
+        """Does not write model file when model is empty."""
+        sample_task._task_dir = tmp_path / "task"
+
+        write_task_files(sample_task, api_key="test-key", start_ref="abc123")
+
+        assert not (sample_task.task_dir / "model").exists()
+
+    def test_no_model_file_when_empty_string(self, tmp_path: Path, sample_task: Task):
+        """Does not write model file when model is empty string."""
+        sample_task._task_dir = tmp_path / "task"
+
+        write_task_files(sample_task, api_key="test-key", start_ref="abc123", model="")
+
+        assert not (sample_task.task_dir / "model").exists()
+
 
 # =============================================================================
 # VMProcess Tests

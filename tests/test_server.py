@@ -41,7 +41,20 @@ class TestRunTask:
             result = await run_task("Test description", repo="my-project")
 
         assert result == {"task_id": "abc123-task-id"}
-        mock_orchestrator.run_task.assert_called_once_with("Test description", "my-project")
+        mock_orchestrator.run_task.assert_called_once_with("Test description", "my-project", model="")
+
+    async def test_run_task_passes_model(self):
+        """run_task passes model parameter to orchestrator."""
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.run_task = AsyncMock(
+            return_value={"task_id": "abc123-task-id"}
+        )
+
+        with patch("microvm_orchestrator.server.get_orchestrator", return_value=mock_orchestrator):
+            result = await run_task("Test description", repo="my-project", model="claude-sonnet-4-5-20250929")
+
+        assert result == {"task_id": "abc123-task-id"}
+        mock_orchestrator.run_task.assert_called_once_with("Test description", "my-project", model="claude-sonnet-4-5-20250929")
 
     async def test_run_task_error_format(self):
         """run_task returns {"error": str} on ToolError."""

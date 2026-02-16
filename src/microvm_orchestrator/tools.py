@@ -166,7 +166,7 @@ class Orchestrator:
         self._processes.pop(task.id, None)
 
     # Tool: run_task
-    async def run_task(self, description: str, repo: str) -> dict[str, Any]:
+    async def run_task(self, description: str, repo: str, *, model: str = "") -> dict[str, Any]:
         """
         Start a new task in a microVM.
 
@@ -227,7 +227,7 @@ class Orchestrator:
             )
 
             # Write task files
-            write_task_files(task, api_key, start_ref)
+            write_task_files(task, api_key, start_ref, model=model)
 
             # Prepare VM environment
             vm_env = prepare_vm_env(task, api_key, start_ref)

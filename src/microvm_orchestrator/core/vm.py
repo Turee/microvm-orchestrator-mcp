@@ -347,7 +347,7 @@ def prepare_vm_env(task: Task, api_key: str, start_ref: str) -> dict[str, str]:
     }
 
 
-def write_task_files(task: Task, api_key: str, start_ref: str) -> None:
+def write_task_files(task: Task, api_key: str, start_ref: str, *, model: str = "") -> None:
     """Write task description and API key files."""
     task.task_dir.mkdir(parents=True, exist_ok=True)
 
@@ -364,3 +364,7 @@ def write_task_files(task: Task, api_key: str, start_ref: str) -> None:
     api_key_file = task.api_key_path
     api_key_file.write_text(api_key)
     api_key_file.chmod(0o600)
+
+    # Write model selection (optional)
+    if model:
+        (task.task_dir / "model").write_text(model)
