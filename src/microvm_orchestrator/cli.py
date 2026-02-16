@@ -107,11 +107,12 @@ def remove(alias: str):
 
 
 @cli.command()
-def serve():
+@click.option("--no-tui", is_flag=True, help="Run headless without the TUI dashboard")
+def serve(no_tui: bool):
     """Start the MCP server."""
     from .server import run
 
-    run()
+    run(headless=no_tui)
 
 
 @cli.command("setup-token")

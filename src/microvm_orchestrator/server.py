@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+import threading
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -201,10 +203,41 @@ async def list_slots() -> dict:
         return {"error": str(e)}
 
 
-def run():
-    """Entry point for running the MCP server."""
-    print(f"Working directory: {os.getcwd()}")
+def _run_mcp_server() -> None:
+    """Run the MCP server (blocking). Intended for use in a daemon thread."""
     mcp.run(transport="streamable-http")
+
+
+def run(headless: bool = False) -> None:
+    """Entry point for running the MCP server.
+
+    Args:
+        headless: If True, run MCP server on the main thread (no TUI).
+            If False, run MCP in a daemon thread and TUI on the main thread.
+    """
+    print(f"Working directory: {os.getcwd()}")
+
+    if headless:
+        _run_mcp_server()
+        return
+
+    # Suppress uvicorn access/error logs when TUI owns the terminal
+    logging.getLogger("uvicorn").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+
+    # Ensure orchestrator is created before starting threads so both
+    # the MCP handlers and the TUI share the same instance.
+    orchestrator = get_orchestrator()
+
+    # Start MCP server in a daemon thread (dies when main thread exits)
+    server_thread = threading.Thread(target=_run_mcp_server, daemon=True)
+    server_thread.start()
+
+    # TUI runs on the main thread (required for terminal raw input / signals)
+    from .tui import start_tui
+
+    start_tui(orchestrator)
 
 
 if __name__ == "__main__":
