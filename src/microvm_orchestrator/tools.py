@@ -80,8 +80,8 @@ class Orchestrator:
         except (TypeError, FileNotFoundError):
             pass
 
-        # Fallback for development: source layout
-        plugin_dir = Path(__file__).parent.parent.parent
+        # Fallback for development: source layout (default.nix is in package dir)
+        plugin_dir = Path(__file__).parent
         if (plugin_dir / "default.nix").exists():
             return plugin_dir
 

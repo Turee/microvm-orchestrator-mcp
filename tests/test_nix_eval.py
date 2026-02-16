@@ -18,8 +18,8 @@ import pytest
 
 HAS_NIX = shutil.which("nix-instantiate") is not None
 
-# Repo root relative to this file: tests/ -> project root
-DEFAULT_NIX = Path(__file__).resolve().parent.parent / "default.nix"
+# default.nix lives inside the package (moved from repo root in a0f484d)
+DEFAULT_NIX = Path(__file__).resolve().parent.parent / "src" / "microvm_orchestrator" / "default.nix"
 
 
 @pytest.mark.nix
