@@ -51,6 +51,12 @@ Running untrusted or experimental code in the main environment is risky. This or
 - **Error handling**: Catch specific exceptions, provide meaningful error messages
 - **Logging**: Use appropriate log levels (debug for verbose, info for milestones, error for failures)
 
+### Dependency Management
+
+- **Always use `uv add`** to install dependencies. Never manually edit `pyproject.toml` to add, remove, or modify dependencies.
+- Examples: `uv add requests`, `uv add --dev pytest`
+- This ensures `uv.lock` stays in sync and dependencies are resolved correctly.
+
 ### Making Changes Safely
 
 1. **Read the related code first**: Before modifying a function, understand its callers and callees
