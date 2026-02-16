@@ -9,6 +9,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..core.task import Task, TaskStatus
+from .format import format_log_content
 
 # Status -> Rich style mapping
 _STATUS_STYLES: dict[TaskStatus, str] = {
@@ -66,7 +67,7 @@ def build_log_panel(lines: list[str], task_id: str | None = None) -> Panel:
         A Rich Panel renderable.
     """
     title = f"Log: {task_id[:8]}" if task_id else "Log"
-    body = Text("\n".join(lines)) if lines else Text("(no output)", style="dim italic")
+    body = format_log_content(lines)
     return Panel(body, title=title, expand=True)
 
 
