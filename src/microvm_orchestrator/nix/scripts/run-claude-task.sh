@@ -11,6 +11,9 @@ TASK_ID_FILE="$WORKSPACE/task-id"
 STREAM_LOG_FILE="$WORKSPACE/claude-stream.jsonl"
 DEBUG_LOG_FILE="$WORKSPACE/task-runner.log"
 RESULT_WRITTEN=0
+CHOWN_TIMEOUT_SEC="${CHOWN_TIMEOUT_SEC:-120}"
+NIX_DEVELOP_PROBE_TIMEOUT_SEC="${NIX_DEVELOP_PROBE_TIMEOUT_SEC:-180}"
+CLAUDE_LAUNCH_TIMEOUT_SEC="${CLAUDE_LAUNCH_TIMEOUT_SEC:-7200}"
 
 # Read task ID if available
 TASK_ID=""
@@ -73,6 +76,39 @@ log() {
   ts="$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo "unknown-time")"
   echo "[$ts] $msg" | tee -a "$DEBUG_LOG_FILE" >/dev/null
   emit "[$ts] $msg"
+}
+
+# Run a command with a timeout and kill it if it exceeds the deadline.
+run_with_timeout() {
+  local timeout_sec="$1"
+  shift
+  local step_name="$1"
+  shift
+
+  if [ "$timeout_sec" -le 0 ] 2>/dev/null; then
+    log "DEBUG: $step_name timeout disabled; running without watchdog"
+    "$@"
+    return $?
+  fi
+
+  "$@" &
+  local cmd_pid="$!"
+  local elapsed=0
+
+  while kill -0 "$cmd_pid" 2>/dev/null; do
+    if [ "$elapsed" -ge "$timeout_sec" ]; then
+      log "ERROR: $step_name timed out after ${timeout_sec}s (pid=$cmd_pid)"
+      kill -TERM "$cmd_pid" 2>/dev/null || true
+      sleep 2
+      kill -KILL "$cmd_pid" 2>/dev/null || true
+      wait "$cmd_pid" 2>/dev/null || true
+      return 124
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+
+  wait "$cmd_pid"
 }
 
 # Only run the task from the serial console login shell (hvc0).
@@ -266,8 +302,50 @@ mkdir -p "$CLAUDE_RUNTIME_DIR"
 chown claude:users "$CLAUDE_RUNTIME_DIR"
 chmod 700 "$CLAUDE_RUNTIME_DIR"
 
-# Chown the repo to claude user so git operations work
-chown -R claude:users "$REPO_DIR"
+# Narrow ownership step first (repo root + .git), then escalate if probe fails.
+log "DEBUG: ownership stage start"
+if ! run_with_timeout "$CHOWN_TIMEOUT_SEC" "chown repo root" chown claude:users "$REPO_DIR"; then
+  write_result false "Task launch failed" "Timed out or failed while chowning repo root ($REPO_DIR)" 1
+  exit 1
+fi
+if [ -d "$REPO_DIR/.git" ]; then
+  if ! run_with_timeout "$CHOWN_TIMEOUT_SEC" "chown .git metadata" chown -R claude:users "$REPO_DIR/.git"; then
+    write_result false "Task launch failed" "Timed out or failed while chowning $REPO_DIR/.git" 1
+    exit 1
+  fi
+fi
+log "DEBUG: ownership stage complete (root + .git)"
+
+# Verify write access as claude. If probe fails, escalate to recursive chown.
+if ! su -s @bash@/bin/bash claude -c "cd \"$REPO_DIR\" && test -w . && test -w .git && touch .microvm-write-probe.$$ && rm -f .microvm-write-probe.$$"; then
+  log "DEBUG: ownership probe failed; escalating to recursive chown"
+  if ! run_with_timeout "$CHOWN_TIMEOUT_SEC" "recursive repo chown fallback" chown -R claude:users "$REPO_DIR"; then
+    write_result false "Task launch failed" "Timed out or failed while recursively chowning repo ($REPO_DIR)" 1
+    exit 1
+  fi
+fi
+log "DEBUG: ownership verification complete"
+
+# Probe native devShell up front so hangs are visible in task-runner.log.
+NIX_PROBE_STDERR="/tmp/nix-develop-test.err"
+NIX_PROBE_STDOUT="/tmp/nix-develop-test.out"
+DEV_SHELL_TARGET="path:."
+log "DEBUG: native devShell probe start (timeout=${NIX_DEVELOP_PROBE_TIMEOUT_SEC}s)"
+if run_with_timeout "$NIX_DEVELOP_PROBE_TIMEOUT_SEC" "native nix develop probe" su -s @bash@/bin/bash claude -c "cd \"$REPO_DIR\" && @nix@/bin/nix develop path:. --command true" >"$NIX_PROBE_STDOUT" 2>"$NIX_PROBE_STDERR"; then
+  log "DEBUG: native devShell probe succeeded"
+else
+  probe_rc="$?"
+  if [ "$probe_rc" -eq 124 ]; then
+    write_result false "Task launch timeout" "Timed out during native nix develop probe after ${NIX_DEVELOP_PROBE_TIMEOUT_SEC}s. See $NIX_PROBE_STDERR for details." 124
+    exit 124
+  fi
+  log "DEBUG: native devShell probe failed; falling back to x86_64-linux"
+  if [ -f "$NIX_PROBE_STDERR" ]; then
+    log "DEBUG: native probe stderr tail:"
+    tail -50 "$NIX_PROBE_STDERR" | tee -a "$DEBUG_LOG_FILE" >/dev/null || true
+  fi
+  DEV_SHELL_TARGET="path:.#devShells.x86_64-linux.default"
+fi
 
 # Create a wrapper so we can set env + run inside repo as claude.
 WRAPPER="$(mktemp /tmp/claude-wrapper.XXXXXX)"
@@ -319,29 +397,37 @@ if [ -n "$MODEL" ]; then
   MODEL_FLAG="--model $MODEL"
 fi
 
-# Try native arch first, fallback to x86_64 if needed (Rosetta translation)
-# Use path:. to avoid git ownership checks (treats as plain directory instead of git repo)
-# First attempt: try native devShell
-if @nix@/bin/nix develop path:. --command true 2>/tmp/nix-develop-test.err; then
-  echo "Using native aarch64-linux devShell" >&2
-  exec @nix@/bin/nix develop path:. --command @nodejs@/bin/npx -y @anthropic-ai/claude-code@latest --dangerously-skip-permissions --output-format stream-json --verbose \$MODEL_FLAG -p "\$TASK"
-else
-  echo "Native devShell not available (see /tmp/nix-develop-test.err), trying x86_64-linux via Rosetta..." >&2
-  cat /tmp/nix-develop-test.err >&2 || true
-  exec @nix@/bin/nix develop path:.#devShells.x86_64-linux.default --command @nodejs@/bin/npx -y @anthropic-ai/claude-code@latest --dangerously-skip-permissions --output-format stream-json --verbose \$MODEL_FLAG -p "\$TASK"
-fi
+echo "Using devShell target: $DEV_SHELL_TARGET" >&2
+exec @nix@/bin/nix develop $DEV_SHELL_TARGET --command @nodejs@/bin/npx -y @anthropic-ai/claude-code@latest --dangerously-skip-permissions --output-format stream-json --verbose \$MODEL_FLAG -p "\$TASK"
 EOF
 chmod 755 "$WRAPPER"
 
-# Run and capture the *real* exit code of su (wrapper).
-# Disable pipefail temporarily so su exit code doesn't trigger ERR trap
-set +o pipefail
-set +e
-su -s @bash@/bin/bash claude -c "$WRAPPER" 2>&1 | tee "$STREAM_LOG_FILE"
-CLAUDE_EXIT="${PIPESTATUS[0]}"
-set -e
+# Run with timeout and capture the *real* exit code of su (wrapper).
+LAUNCH_SCRIPT="$(mktemp /tmp/claude-launch.XXXXXX)"
+LAUNCH_EXIT_FILE="$(mktemp /tmp/claude-launch-exit.XXXXXX)"
+cat <<EOF > "$LAUNCH_SCRIPT"
+#!@bash@/bin/bash
 set -o pipefail
-rm -f "$WRAPPER" 2>/dev/null || true
+su -s @bash@/bin/bash claude -c "$WRAPPER" 2>&1 | tee "$STREAM_LOG_FILE"
+echo "\${PIPESTATUS[0]}" > "$LAUNCH_EXIT_FILE"
+EOF
+chmod 755 "$LAUNCH_SCRIPT"
+
+log "DEBUG: Claude launch stage start (timeout=${CLAUDE_LAUNCH_TIMEOUT_SEC}s)"
+if run_with_timeout "$CLAUDE_LAUNCH_TIMEOUT_SEC" "Claude launch pipeline" @bash@/bin/bash "$LAUNCH_SCRIPT"; then
+  launch_rc=0
+else
+  launch_rc="$?"
+fi
+if [ "$launch_rc" -eq 124 ]; then
+  rm -f "$WRAPPER" "$LAUNCH_SCRIPT" "$LAUNCH_EXIT_FILE" 2>/dev/null || true
+  write_result false "Task launch timeout" "Timed out running Claude launch pipeline after ${CLAUDE_LAUNCH_TIMEOUT_SEC}s" 124
+  exit 124
+fi
+log "DEBUG: Claude launch stage complete"
+
+CLAUDE_EXIT="$(cat "$LAUNCH_EXIT_FILE" 2>/dev/null || echo "1")"
+rm -f "$WRAPPER" "$LAUNCH_SCRIPT" "$LAUNCH_EXIT_FILE" 2>/dev/null || true
 
 if [ "$CLAUDE_EXIT" -eq 0 ]; then
   # Parse stream-json output
