@@ -60,6 +60,7 @@ class TestBuildVM:
                     "MICROVM_SLOT": "1",
                     "MICROVM_MEM": "8192",
                     "MICROVM_VCPU": "8",
+                    "MICROVM_DISK": "30000",
                 },
                 slot=1,
             )
@@ -84,6 +85,8 @@ class TestBuildVM:
             assert "8192" in cmd
             assert "vcpu" in cmd
             assert "8" in cmd
+            assert "disk" in cmd
+            assert "30000" in cmd
             # Result symlink is in writable cache directory
             cmd_str = " ".join(cmd)
             assert ".microvm-orchestrator/nix-cache/result-mcp-1" in cmd_str
@@ -442,9 +445,10 @@ class TestPrepareVMEnv:
         assert env["MICROVM_PACKAGE"] == "claude-microvm"
         assert env["MICROVM_MEM"] == "4096"
         assert env["MICROVM_VCPU"] == "4"
+        assert env["MICROVM_DISK"] == "30000"
 
     def test_prepare_vm_env_custom_resources(self, sample_task: Task, tmp_path: Path):
-        """Returns custom mem/vcpu when specified."""
+        """Returns custom mem/vcpu/disk when specified."""
         with patch("microvm_orchestrator.core.vm.get_slot_dir") as mock_slot:
             slot_dir = tmp_path / "slots" / "1"
             slot_dir.mkdir(parents=True)
@@ -459,10 +463,12 @@ class TestPrepareVMEnv:
                     start_ref="abc123",
                     mem=8192,
                     vcpu=8,
+                    disk=60000,
                 )
 
         assert env["MICROVM_MEM"] == "8192"
         assert env["MICROVM_VCPU"] == "8"
+        assert env["MICROVM_DISK"] == "60000"
 
 
 # =============================================================================

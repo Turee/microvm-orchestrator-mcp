@@ -166,7 +166,7 @@ class Orchestrator:
         self._processes.pop(task.id, None)
 
     # Tool: run_task
-    async def run_task(self, description: str, repo: str, *, model: str = "", mem: int = 4096, vcpu: int = 4) -> dict[str, Any]:
+    async def run_task(self, description: str, repo: str, *, model: str = "", mem: int = 4096, vcpu: int = 4, disk: int = 30000) -> dict[str, Any]:
         """
         Start a new task in a microVM.
 
@@ -230,7 +230,7 @@ class Orchestrator:
             write_task_files(task, api_key, start_ref, model=model)
 
             # Prepare VM environment
-            vm_env = prepare_vm_env(task, api_key, start_ref, mem=mem, vcpu=vcpu)
+            vm_env = prepare_vm_env(task, api_key, start_ref, mem=mem, vcpu=vcpu, disk=disk)
 
             # Create VM config (uses plugin's default.nix)
             config = VMConfig(

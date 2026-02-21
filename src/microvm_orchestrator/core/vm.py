@@ -74,6 +74,7 @@ def build_vm(
         "MICROVM_SLOT": "slot",
         "MICROVM_MEM": "mem",
         "MICROVM_VCPU": "vcpu",
+        "MICROVM_DISK": "disk",
     }
 
     for env_var, arg_name in arg_mapping.items():
@@ -332,7 +333,7 @@ def ensure_slot_initialized(slot: int) -> Path:
 
 
 def prepare_vm_env(
-    task: Task, api_key: str, start_ref: str, *, mem: int = 4096, vcpu: int = 4,
+    task: Task, api_key: str, start_ref: str, *, mem: int = 4096, vcpu: int = 4, disk: int = 30000,
 ) -> dict[str, str]:
     """Prepare environment variables for VM execution."""
     slot_dir = ensure_slot_initialized(task.slot)
@@ -350,6 +351,7 @@ def prepare_vm_env(
         "MICROVM_PACKAGE": "claude-microvm",
         "MICROVM_MEM": str(mem),
         "MICROVM_VCPU": str(vcpu),
+        "MICROVM_DISK": str(disk),
     }
 
 

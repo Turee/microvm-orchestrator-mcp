@@ -9,6 +9,7 @@
   containerDir ? "",
   mem ? "4096",
   vcpu ? "4",
+  disk ? "30000",
 }:
 
 let
@@ -35,6 +36,7 @@ let
   # Convert string args to integers (--argstr always passes strings)
   memInt = builtins.fromJSON mem;
   vcpuInt = builtins.fromJSON vcpu;
+  diskInt = builtins.fromJSON disk;
 
   # Build the NixOS configuration using the proper evalModules approach
   nixosConfiguration = import "${toString <nixpkgs>}/nixos/lib/eval-config.nix" {
@@ -47,6 +49,7 @@ let
         containerDir = effectiveContainerDir;
         mem = memInt;
         vcpu = vcpuInt;
+        disk = diskInt;
       })
       # Disable the virtiofsd module — vfkit handles virtiofs natively via
       # macOS Virtualization.framework, and virtiofsd is Linux-only.

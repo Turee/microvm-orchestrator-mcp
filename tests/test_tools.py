@@ -99,6 +99,26 @@ class TestRunTask:
         assert call_kwargs[1]["mem"] == 4096
         assert call_kwargs[1]["vcpu"] == 4
 
+    async def test_run_task_passes_disk_to_prepare_env(
+        self, orchestrator: Orchestrator, mock_orchestrator_deps
+    ):
+        """run_task passes disk to prepare_vm_env."""
+        await orchestrator.run_task("Test", repo="project", disk=60000)
+
+        mock_orchestrator_deps["prepare_env"].assert_called_once()
+        call_kwargs = mock_orchestrator_deps["prepare_env"].call_args
+        assert call_kwargs[1]["disk"] == 60000
+
+    async def test_run_task_default_disk(
+        self, orchestrator: Orchestrator, mock_orchestrator_deps
+    ):
+        """run_task passes default disk when not specified."""
+        await orchestrator.run_task("Test", repo="project")
+
+        mock_orchestrator_deps["prepare_env"].assert_called_once()
+        call_kwargs = mock_orchestrator_deps["prepare_env"].call_args
+        assert call_kwargs[1]["disk"] == 30000
+
     async def test_run_task_marks_failed_on_error(
         self, orchestrator: Orchestrator, mock_orchestrator_deps
     ):

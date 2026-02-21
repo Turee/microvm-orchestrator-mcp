@@ -7,6 +7,7 @@
   hostPkgs,
   mem ? 4096,
   vcpu ? 4,
+  disk ? 30000,
 }:
 { pkgs, lib, ... }:
 let
@@ -136,12 +137,12 @@ in
     # Writable Nix store overlay for building packages inside VM
     writableStoreOverlay = "/nix/.rw-store";
 
-    # Ext4 volume for writable Nix store (30GB - Nix store can grow large)
+    # Ext4 volume for writable Nix store (30GB default - Nix store can grow large)
     volumes = [
       {
         image = nixStoreImage;
         mountPoint = "/nix/.rw-store";
-        size = 30000;
+        size = disk;
       }
     ];
 
