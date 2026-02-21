@@ -127,6 +127,33 @@ class TestBuildLogPanel:
         assert "Hello" in output
         assert "boot message" in output
 
+    def test_focus_search_and_scroll_metadata(self):
+        output = _render(
+            build_log_panel(
+                ["line1"],
+                title="Server Log",
+                focused=True,
+                search_query="warn",
+                search_current=2,
+                search_total=5,
+                scroll_offset=8,
+            )
+        )
+        assert "FOCUS" in output
+        assert "search:2/5" in output
+        assert "scroll:+8" in output
+
+    def test_search_mode_prompt_in_title(self):
+        output = _render(
+            build_log_panel(
+                ["line1"],
+                title="Log",
+                search_mode=True,
+                search_buffer="error",
+            )
+        )
+        assert "/error_" in output
+
 
 # --- build_status_bar ---
 
@@ -142,6 +169,23 @@ class TestBuildStatusBar:
         assert "select" in output
         assert "[tab]" in output
         assert "switch" in output
+        assert "[left/right]" in output
+        assert "focus pane" in output
+        assert "[pgup/pgdn]" in output
+        assert "search" in output
+        assert "match" in output
+
+    def test_shows_focus_and_search_prompt(self):
+        output = _render(
+            build_status_bar(
+                active_tab="task",
+                focused_pane="log",
+                search_mode=True,
+                search_buffer="timeout",
+            )
+        )
+        assert "pane:log" in output
+        assert "/timeout_" in output
 
     def test_task_tab_active(self):
         output = _render(build_status_bar(active_tab="task"))

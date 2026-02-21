@@ -8,6 +8,16 @@ from unittest.mock import MagicMock, patch
 
 from microvm_orchestrator.core.task import Task, TaskStatus
 from microvm_orchestrator.tui.app import TUIApp
+from microvm_orchestrator.tui.input import (
+    KEY_DOWN,
+    KEY_ENTER,
+    KEY_ESCAPE,
+    KEY_LEFT,
+    KEY_PAGE_DOWN,
+    KEY_PAGE_UP,
+    KEY_RIGHT,
+    KEY_UP,
+)
 from microvm_orchestrator.tui.log_capture import LogCapture
 
 
@@ -40,6 +50,7 @@ class TestTUIAppInit:
         assert app._selected == 0
         assert app._log_capture is None
         assert app._tab == "task"
+        assert app._focused_pane == "tasks"
         assert app._claude_tailer is None
 
     def test_with_orchestrator(self):
@@ -148,6 +159,90 @@ class TestHandleKey:
         app._selected = 2
         app._handle_key(KEY_UP, task_count=3)
         assert app._selected == 1
+
+    def test_left_and_right_switch_focus_panes(self):
+        app = TUIApp()
+        assert app._focused_pane == "tasks"
+        app._handle_key(KEY_RIGHT, task_count=2)
+        assert app._focused_pane == "log"
+        app._handle_key(KEY_LEFT, task_count=2)
+        assert app._focused_pane == "tasks"
+
+    def test_up_down_scroll_logs_when_log_pane_focused(self):
+        app = TUIApp()
+        app._focused_pane = "log"
+        app._selected = 1
+        app._current_log_source_key = "task:abc"
+        app._current_log_lines = [f"line {i}" for i in range(50)]
+        app._current_viewport_lines = 10
+        app._log_offsets["task:abc"] = 0
+
+        app._handle_key(KEY_DOWN, task_count=3)
+        assert app._selected == 1
+        assert app._log_offsets["task:abc"] == 1
+
+        app._handle_key(KEY_UP, task_count=3)
+        assert app._selected == 1
+        assert app._log_offsets["task:abc"] == 0
+
+    def test_page_scroll_clamps_bounds(self):
+        app = TUIApp()
+        app._focused_pane = "log"
+        app._current_log_source_key = "task:abc"
+        app._current_log_lines = [f"line {i}" for i in range(25)]
+        app._current_viewport_lines = 10
+        app._log_offsets["task:abc"] = 0
+
+        app._handle_key(KEY_PAGE_DOWN, task_count=1)
+        assert app._log_offsets["task:abc"] == 9
+        app._handle_key(KEY_PAGE_DOWN, task_count=1)
+        # max offset = line_count - viewport = 15
+        assert app._log_offsets["task:abc"] == 15
+        app._handle_key(KEY_PAGE_UP, task_count=1)
+        assert app._log_offsets["task:abc"] == 6
+        app._handle_key(KEY_PAGE_UP, task_count=1)
+        app._handle_key(KEY_PAGE_UP, task_count=1)
+        assert app._log_offsets["task:abc"] == 0
+
+    def test_search_mode_lifecycle(self):
+        app = TUIApp()
+        app._current_log_source_key = "task:abc"
+        app._current_log_lines = ["alpha", "beta error", "gamma error"]
+        app._current_viewport_lines = 5
+
+        app._handle_key("/", task_count=1)
+        assert app._search_mode is True
+        app._handle_key("e", task_count=1)
+        app._handle_key("r", task_count=1)
+        app._handle_key("r", task_count=1)
+        app._handle_key(KEY_ENTER, task_count=1)
+        assert app._search_mode is False
+        assert app._search_query == "err"
+        assert len(app._search_matches) == 2
+
+    def test_escape_cancels_search_mode(self):
+        app = TUIApp()
+        app._search_query = "old"
+        app._handle_key("/", task_count=1)
+        app._handle_key("x", task_count=1)
+        assert app._search_mode is True
+        app._handle_key(KEY_ESCAPE, task_count=1)
+        assert app._search_mode is False
+        assert app._search_query == "old"
+
+    def test_n_and_shift_n_navigate_matches(self):
+        app = TUIApp()
+        app._current_log_source_key = "task:abc"
+        app._current_log_lines = ["aaa", "error1", "bbb", "error2", "ccc"]
+        app._current_viewport_lines = 3
+        app._search_query = "error"
+        app._refresh_search_matches()
+        assert app._search_matches == [1, 3]
+
+        app._handle_key("n", task_count=1)
+        assert app._search_match_cursor == 1
+        app._handle_key("N", task_count=1)
+        assert app._search_match_cursor == 0
 
     def test_j_with_no_tasks_stays_at_zero(self):
         app = TUIApp()

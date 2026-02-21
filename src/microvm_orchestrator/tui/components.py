@@ -70,6 +70,13 @@ def build_log_panel(
     title: str | None = None,
     *,
     force_jsonl: bool = False,
+    focused: bool = False,
+    search_query: str = "",
+    search_current: int = 0,
+    search_total: int = 0,
+    search_mode: bool = False,
+    search_buffer: str = "",
+    scroll_offset: int = 0,
 ) -> Panel:
     """Build a Rich Panel displaying log lines.
 
@@ -85,11 +92,29 @@ def build_log_panel(
     """
     if title is None:
         title = f"Log: {task_id[:8]}" if task_id else "Log"
+    title_parts = [title]
+    if focused:
+        title_parts.append("FOCUS")
+    if search_mode:
+        title_parts.append(f"/{search_buffer}_")
+    elif search_query:
+        if search_total > 0:
+            title_parts.append(f"search:{search_current}/{search_total}")
+        else:
+            title_parts.append("search:0/0")
+    if scroll_offset > 0:
+        title_parts.append(f"scroll:+{scroll_offset}")
+
     body = format_log_content(lines, force_jsonl=force_jsonl)
-    return Panel(body, title=title, expand=True)
+    return Panel(body, title=" | ".join(title_parts), expand=True)
 
 
-def build_status_bar(active_tab: str = "task") -> Text:
+def build_status_bar(
+    active_tab: str = "task",
+    focused_pane: str = "tasks",
+    search_mode: bool = False,
+    search_buffer: str = "",
+) -> Text:
     """Build a status bar showing keybinding hints and active tab indicator.
 
     Args:
@@ -102,11 +127,24 @@ def build_status_bar(active_tab: str = "task") -> Text:
     bar.append(" [q]", style="bold")
     bar.append("uit  ")
     bar.append("[j/k]", style="bold")
-    bar.append("nav  ")
+    bar.append("nav/scroll  ")
+    bar.append("[up/down]", style="bold")
+    bar.append("nav/scroll  ")
+    bar.append("[pgup/pgdn]", style="bold")
+    bar.append("page-scroll  ")
+    bar.append("[left/right]", style="bold")
+    bar.append("focus pane  ")
     bar.append("[1-9]", style="bold")
     bar.append("select  ")
+    bar.append("[/]", style="bold")
+    bar.append("search  ")
+    bar.append("[n/N]", style="bold")
+    bar.append("match  ")
     bar.append("[tab]", style="bold")
     bar.append("switch  ")
+    bar.append(f"[pane:{focused_pane}]")
+    if search_mode:
+        bar.append(f"  [search:/{search_buffer}_]", style="bold")
 
     # Tab indicator
     for i, tab_key in enumerate(_TAB_ORDER):

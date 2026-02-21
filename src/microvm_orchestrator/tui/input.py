@@ -14,6 +14,8 @@ KEY_UP = "up"
 KEY_DOWN = "down"
 KEY_RIGHT = "right"
 KEY_LEFT = "left"
+KEY_PAGE_UP = "page_up"
+KEY_PAGE_DOWN = "page_down"
 KEY_ENTER = "enter"
 KEY_TAB = "tab"
 KEY_ESCAPE = "escape"
@@ -24,6 +26,8 @@ _ESCAPE_SEQS = {
     "[B": KEY_DOWN,
     "[C": KEY_RIGHT,
     "[D": KEY_LEFT,
+    "[5~": KEY_PAGE_UP,
+    "[6~": KEY_PAGE_DOWN,
 }
 
 
@@ -98,7 +102,7 @@ class InputReader:
     def _parse_escape(self, timeout: float) -> str:
         """Try to read an escape sequence; fall back to bare ESC."""
         seq = ""
-        for _ in range(2):
+        for _ in range(4):
             ready, _, _ = select.select([self._fd], [], [], timeout)
             if not ready:
                 break
@@ -106,6 +110,10 @@ class InputReader:
             if ch is None:
                 break
             seq += ch
+
+            # CSI-based sequences usually terminate with a letter or "~".
+            if ch.isalpha() or ch == "~":
+                break
 
         return _ESCAPE_SEQS.get(seq, KEY_ESCAPE)
 
