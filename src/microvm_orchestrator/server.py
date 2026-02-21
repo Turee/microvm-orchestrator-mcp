@@ -203,24 +203,8 @@ async def list_slots() -> dict:
         return {"error": str(e)}
 
 
-def _run_mcp_server() -> None:
-    """Run the MCP server (blocking). Intended for use in a daemon thread.
-
-    Uses uvicorn directly with ``log_config=None`` to prevent uvicorn from
-    creating its own StreamHandlers that write to stdout/stderr (which Rich.Live
-    redirects, causing cross-thread lock contention and display freezes).
-    """
-    import uvicorn
-
-    app = mcp.streamable_http_app()
-    config = uvicorn.Config(
-        app,
-        host="127.0.0.1",
-        port=8765,
-        log_config=None,
-        log_level="info",
-    )
-    server = uvicorn.Server(config)
+def _run_mcp_server(server: "uvicorn.Server") -> None:
+    """Run the given uvicorn Server (blocking). For use in a daemon thread."""
     server.run()
 
 
@@ -234,7 +218,11 @@ def run(headless: bool = False) -> None:
     print(f"Working directory: {os.getcwd()}")
 
     if headless:
-        _run_mcp_server()
+        import uvicorn
+
+        app = mcp.streamable_http_app()
+        config = uvicorn.Config(app, host="127.0.0.1", port=8765, log_config=None, log_level="info")
+        _run_mcp_server(uvicorn.Server(config))
         return
 
     # Redirect all logging into a memory buffer so the TUI stays clean.
@@ -262,14 +250,32 @@ def run(headless: bool = False) -> None:
     # the MCP handlers and the TUI share the same instance.
     orchestrator = get_orchestrator()
 
+    import uvicorn
+
+    app = mcp.streamable_http_app()
+    config = uvicorn.Config(
+        app,
+        host="127.0.0.1",
+        port=8765,
+        log_config=None,
+        log_level="info",
+    )
+    uv_server = uvicorn.Server(config)
+
     # Start MCP server in a daemon thread (dies when main thread exits)
-    server_thread = threading.Thread(target=_run_mcp_server, daemon=True)
+    server_thread = threading.Thread(target=_run_mcp_server, args=(uv_server,), daemon=True)
     server_thread.start()
 
     # TUI runs on the main thread (required for terminal raw input / signals)
     from .tui import start_tui
 
-    start_tui(orchestrator, log_capture=log_capture)
+    try:
+        start_tui(orchestrator, log_capture=log_capture)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        uv_server.should_exit = True
+        server_thread.join(timeout=5.0)
 
 
 if __name__ == "__main__":

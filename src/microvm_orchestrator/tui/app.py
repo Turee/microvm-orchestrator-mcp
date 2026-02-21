@@ -143,33 +143,36 @@ class TUIApp:
 
         interval = 1.0 / 10  # 10 FPS
 
-        with reader:
-            with Live(
-                layout,
-                refresh_per_second=10,
-                screen=True,
-                auto_refresh=False,
-            ) as live:
-                while self._running:
-                    start = time.monotonic()
+        try:
+            with reader:
+                with Live(
+                    layout,
+                    refresh_per_second=10,
+                    screen=True,
+                    auto_refresh=False,
+                ) as live:
+                    while self._running:
+                        start = time.monotonic()
 
-                    try:
-                        # Poll input (non-blocking)
-                        key = reader.read_key(timeout=0.0)
-                        tasks = self._get_tasks()
-                        self._handle_key(key, len(tasks))
+                        try:
+                            # Poll input (non-blocking)
+                            key = reader.read_key(timeout=0.0)
+                            tasks = self._get_tasks()
+                            self._handle_key(key, len(tasks))
 
-                        if not self._running:
-                            break
+                            if not self._running:
+                                break
 
-                        # Update display
-                        self._update_layout(layout)
-                        live.refresh()
-                    except Exception:
-                        logger.exception("TUI render error")
+                            # Update display
+                            self._update_layout(layout)
+                            live.refresh()
+                        except Exception:
+                            logger.exception("TUI render error")
 
-                    # Sleep remainder of frame
-                    elapsed = time.monotonic() - start
-                    sleep_time = interval - elapsed
-                    if sleep_time > 0:
-                        time.sleep(sleep_time)
+                        # Sleep remainder of frame
+                        elapsed = time.monotonic() - start
+                        sleep_time = interval - elapsed
+                        if sleep_time > 0:
+                            time.sleep(sleep_time)
+        except KeyboardInterrupt:
+            pass
