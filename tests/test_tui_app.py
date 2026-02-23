@@ -66,23 +66,26 @@ def test_get_tasks_reads_orchestrator_values():
     assert len(tasks) == 2
 
 
-def test_resolve_log_source_task_uses_tailer():
+def test_resolve_log_source_task_uses_term_screen():
     task = _make_task()
     app = TUIApp(_mock_orchestrator([task]))
     app._tasks = [task]
     app._selected_index = 0
     app._active_source = "task"
 
-    tailer = DummyTailer(task.log_path, ["line 1", "line 2"])
-    with patch.object(app, "_get_tailer", return_value=tailer):
-        source_key, title, lines, force_jsonl, returned_tailer = app._resolve_log_source()
+    from microvm_orchestrator.tui.term_screen import TermScreen
+
+    mock_term = MagicMock(spec=TermScreen)
+    with patch.object(app, "_get_term_screen", return_value=mock_term):
+        source_key, title, lines, force_jsonl, returned_tailer, term = app._resolve_log_source()
 
     assert source_key == f"task:{task.id}"
     assert title == "VM Log"
-    assert lines == ["line 1", "line 2"]
+    assert lines == []
     assert force_jsonl is False
-    assert returned_tailer is tailer
-    assert tailer.poll_calls == 1
+    assert returned_tailer is None
+    assert term is mock_term
+    mock_term.poll.assert_called_once()
 
 
 def test_resolve_log_source_claude_forces_jsonl():
@@ -94,25 +97,27 @@ def test_resolve_log_source_claude_forces_jsonl():
 
     tailer = DummyTailer(task.stream_log_path, ['{"type":"content_block_delta"}'])
     with patch.object(app, "_get_tailer", return_value=tailer):
-        source_key, title, lines, force_jsonl, returned_tailer = app._resolve_log_source()
+        source_key, title, lines, force_jsonl, returned_tailer, term = app._resolve_log_source()
 
     assert source_key == f"claude:{task.id}"
     assert title == "Claude"
     assert lines
     assert force_jsonl is True
     assert returned_tailer is tailer
+    assert term is None
 
 
 def test_resolve_log_source_empty_when_no_selected_task():
     app = TUIApp()
     app._tasks = []
     app._active_source = "task"
-    source_key, title, lines, force_jsonl, returned_tailer = app._resolve_log_source()
+    source_key, title, lines, force_jsonl, returned_tailer, term = app._resolve_log_source()
     assert source_key == "task:none"
     assert title == "VM Log"
     assert lines == []
     assert force_jsonl is False
     assert returned_tailer is None
+    assert term is None
 
 
 def test_action_next_and_prev_source_cycle():
@@ -216,8 +221,8 @@ def test_refresh_logs_plain_text_appends_only_new_lines():
         app,
         "_resolve_log_source",
         side_effect=[
-            ("task:abc", "VM Log", ["a", "b"], False, None),
-            ("task:abc", "VM Log", ["a", "b", "c"], False, None),
+            ("task:abc", "VM Log", ["a", "b"], False, None, None),
+            ("task:abc", "VM Log", ["a", "b", "c"], False, None, None),
         ],
     ):
         app._refresh_logs()
@@ -248,8 +253,8 @@ def test_refresh_logs_jsonl_appends_incremental_lines():
         app,
         "_resolve_log_source",
         side_effect=[
-            ("claude:abc", "Claude", ['{"type":"content_block_delta","delta":{"type":"text_delta","text":"a"}}'], True, None),
-            ("claude:abc", "Claude", ['{"type":"content_block_delta","delta":{"type":"text_delta","text":"a"}}', '{"type":"content_block_delta","delta":{"type":"text_delta","text":"b"}}'], True, None),
+            ("claude:abc", "Claude", ['{"type":"content_block_delta","delta":{"type":"text_delta","text":"a"}}'], True, None, None),
+            ("claude:abc", "Claude", ['{"type":"content_block_delta","delta":{"type":"text_delta","text":"a"}}', '{"type":"content_block_delta","delta":{"type":"text_delta","text":"b"}}'], True, None, None),
         ],
     ):
         app._refresh_logs()

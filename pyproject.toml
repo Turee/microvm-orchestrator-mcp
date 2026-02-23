@@ -10,6 +10,7 @@ dependencies = [
     "mcp>=1.0.0",
     "rich>=14.3.2",
     "textual>=8.0.0",
+    "pyte>=0.8.0",
 ]
 
 [project.scripts]

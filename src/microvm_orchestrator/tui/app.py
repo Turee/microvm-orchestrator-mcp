@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from rich.markdown import Markdown
 from rich.text import Text
+from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -16,6 +17,7 @@ from ..core.task import TaskStatus
 from .format import format_jsonl_line, format_log_content
 from .log_capture import LogCapture
 from .tail import LogTailer
+from .term_screen import TermScreen
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -66,9 +68,11 @@ class TUIApp(App[None]):
         self._follow_logs = True
         self._tasks: list[Task] = []
         self._tailers: dict[str, LogTailer] = {}
+        self._term_screens: dict[str, TermScreen] = {}
         self._last_source_key = ""
         self._rendered_line_count = 0
         self._rendered_total: int = 0
+        self._rendered_generation: int = 0
         self._description_preview_task_id: str | None = None
         self._refreshing_logs = False
         self._programmatic_update = False
@@ -190,33 +194,42 @@ class TUIApp(App[None]):
             self._tailers[source_key] = tailer
         return tailer
 
-    def _resolve_log_source(self) -> tuple[str, str, list[str], bool, LogTailer | None]:
+    def _get_term_screen(self, source_key: str, path: Path) -> TermScreen:
+        """Get or create a TermScreen for the given source key/path pair."""
+        term = self._term_screens.get(source_key)
+        if term is None or term.path != path:
+            term = TermScreen(path)
+            self._term_screens[source_key] = term
+        return term
+
+    def _resolve_log_source(self) -> tuple[str, str, list[str], bool, LogTailer | None, TermScreen | None]:
         """Resolve active source metadata and lines to display.
 
-        Returns (source_key, title, lines, force_jsonl, tailer).
-        *tailer* is non-None for file-backed sources so callers can inspect
-        ``total_appended`` to detect new content after deque wrapping.
+        Returns (source_key, title, lines, force_jsonl, tailer, term_screen).
+        For the "task" source, *term_screen* is set and lines/tailer are empty/None.
+        For other sources, *term_screen* is None.
         """
         selected_task = self._tasks[self._selected_index] if self._tasks else None
 
         if self._active_source == "server":
             lines = self._log_capture.get_lines() if self._log_capture else []
-            return ("server", _LOG_LABELS["server"], lines, False, None)
+            return ("server", _LOG_LABELS["server"], lines, False, None, None)
 
         if self._active_source == "claude":
             if not selected_task:
-                return ("claude:none", _LOG_LABELS["claude"], [], True, None)
+                return ("claude:none", _LOG_LABELS["claude"], [], True, None, None)
             source_key = f"claude:{selected_task.id}"
             tailer = self._get_tailer(source_key, selected_task.stream_log_path)
             tailer.poll()
-            return (source_key, _LOG_LABELS["claude"], tailer.get_lines(), True, tailer)
+            return (source_key, _LOG_LABELS["claude"], tailer.get_lines(), True, tailer, None)
 
+        # "task" source — use TermScreen for proper ANSI rendering
         if not selected_task:
-            return ("task:none", _LOG_LABELS["task"], [], False, None)
+            return ("task:none", _LOG_LABELS["task"], [], False, None, None)
         source_key = f"task:{selected_task.id}"
-        tailer = self._get_tailer(source_key, selected_task.log_path)
-        tailer.poll()
-        return (source_key, _LOG_LABELS["task"], tailer.get_lines(), False, tailer)
+        term = self._get_term_screen(source_key, selected_task.log_path)
+        term.poll()
+        return (source_key, _LOG_LABELS["task"], [], False, None, term)
 
     def _write_lines(self, log_view: RichLog, lines: list[str]) -> None:
         """Write plain text lines to RichLog as a single batch."""
@@ -244,6 +257,7 @@ class TUIApp(App[None]):
         ``total_appended`` counter so that new content is detected even
         after the underlying deque wraps (i.e. ``len()`` stops growing).
         For non-tailer sources (server log) we fall back to ``len(lines)``.
+        For the "task" source, a TermScreen handles ANSI rendering via pyte.
         """
         if self._refreshing_logs:
             return
@@ -251,7 +265,7 @@ class TUIApp(App[None]):
         try:
             content_changed = False
             selected_task = self._tasks[self._selected_index] if self._tasks else None
-            source_key, title, lines, force_jsonl, tailer = self._resolve_log_source()
+            source_key, title, lines, force_jsonl, tailer, term = self._resolve_log_source()
             log_view = self.query_one("#log-view", RichLog)
 
             if self._description_preview_task_id and selected_task:
@@ -267,6 +281,7 @@ class TUIApp(App[None]):
                 self._last_source_key = "description"
                 self._rendered_line_count = 0
                 self._rendered_total = 0
+                self._rendered_generation = 0
                 return
 
             title_bits = [title]
@@ -279,7 +294,25 @@ class TUIApp(App[None]):
                 content_changed = True
                 self._rendered_line_count = 0
                 self._rendered_total = 0
+                self._rendered_generation = 0
 
+            # TermScreen path: clear + rewrite on each new generation
+            if term is not None:
+                if term.generation != self._rendered_generation or source_changed:
+                    log_view.clear()
+                    rendered = term.render()
+                    if rendered.plain:
+                        log_view.write(rendered)
+                    elif source_changed:
+                        log_view.write("(no output)")
+                    self._rendered_generation = term.generation
+                    content_changed = True
+                self._last_source_key = source_key
+                if self._follow_logs and content_changed:
+                    log_view.scroll_end(animate=False)
+                return
+
+            # Tailer / plain-text path
             total = tailer.total_appended if tailer else len(lines)
             new_count = total - self._rendered_total
 
@@ -331,6 +364,17 @@ class TUIApp(App[None]):
         finally:
             self._refreshing_logs = False
 
+    def on_resize(self, event: events.Resize) -> None:
+        """Resize pyte screens to match the log pane width."""
+        try:
+            log_view = self.query_one("#log-view", RichLog)
+            width = log_view.size.width
+            if width > 0:
+                for term in self._term_screens.values():
+                    term.resize(columns=width, lines=50)
+        except Exception:
+            pass
+
     def _set_selected_row(self, row_index: int) -> None:
         """Update selected row and force log refresh on task change."""
         if not self._tasks:
@@ -341,6 +385,7 @@ class TUIApp(App[None]):
             self._last_source_key = ""
             self._rendered_line_count = 0
             self._rendered_total = 0
+            self._rendered_generation = 0
             self._refresh_logs()
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
@@ -366,6 +411,7 @@ class TUIApp(App[None]):
         self._last_source_key = ""
         self._rendered_line_count = 0
         self._rendered_total = 0
+        self._rendered_generation = 0
         self._refresh_logs()
 
     def action_prev_log_source(self) -> None:
@@ -375,6 +421,7 @@ class TUIApp(App[None]):
         self._last_source_key = ""
         self._rendered_line_count = 0
         self._rendered_total = 0
+        self._rendered_generation = 0
         self._refresh_logs()
 
     def action_toggle_follow(self) -> None:
@@ -400,6 +447,7 @@ class TUIApp(App[None]):
         self._last_source_key = ""
         self._rendered_line_count = 0
         self._rendered_total = 0
+        self._rendered_generation = 0
 
     def action_jump_latest(self) -> None:
         """Jump log viewport to the latest entries."""
@@ -422,6 +470,7 @@ class TUIApp(App[None]):
         self._last_source_key = ""
         self._rendered_line_count = 0
         self._rendered_total = 0
+        self._rendered_generation = 0
         self._refresh_logs()
 
     def action_reset_layout(self) -> None:
@@ -431,5 +480,6 @@ class TUIApp(App[None]):
         self._last_source_key = ""
         self._rendered_line_count = 0
         self._rendered_total = 0
+        self._rendered_generation = 0
         self._refresh_logs()
         self.action_focus_tasks()
