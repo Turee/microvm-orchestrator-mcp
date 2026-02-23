@@ -7,7 +7,7 @@ Screen {
 }
 
 #tasks-pane {
-    width: 32%;
+    width: 40;
     min-width: 30;
     border: round $primary;
     padding: 0 1;
@@ -19,7 +19,12 @@ Screen {
     padding: 0 1;
 }
 
-#tasks-title,
+#tasks-title {
+    height: 1;
+    padding: 0 0 0 1;
+    color: $text-muted;
+}
+
 #log-title {
     height: 1;
     padding: 0 0 0 1;

@@ -11,7 +11,7 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import DataTable, Footer, Header, RichLog, Static
+from textual.widgets import DataTable, Footer, Header, RichLog, Static, Tab, Tabs
 
 from ..core.task import TaskStatus
 from .format import format_jsonl_line, format_log_content
@@ -88,7 +88,13 @@ class TUIApp(App[None]):
                 yield Static("Tasks", id="tasks-title")
                 yield DataTable(id="task-table")
             with Vertical(id="logs-pane"):
-                yield Static("Log", id="log-title")
+                yield Tabs(
+                    Tab("VM Log", id="source-task"),
+                    Tab("Claude", id="source-claude"),
+                    Tab("Server Log", id="source-server"),
+                    id="log-tabs",
+                )
+                yield Static("follow:on", id="log-title")
                 yield RichLog(id="log-view", wrap=False, highlight=False)
         yield Footer()
 
@@ -97,8 +103,15 @@ class TUIApp(App[None]):
         table = self.query_one("#task-table", DataTable)
         table.cursor_type = "row"
         table.zebra_stripes = True
-        self._col_keys = list(table.add_columns("#", "ID", "Status", "Slot"))
+        self._col_keys = [
+            table.add_column("#", width=2),
+            table.add_column("ID", width=8),
+            table.add_column("Status", width=9),
+            table.add_column("Slot", width=4),
+        ]
         table.focus()
+
+        self.query_one("#log-tabs", Tabs).active = f"source-{self._active_source}"
 
         log_view = self.query_one("#log-view", RichLog)
         log_view.auto_scroll = self._follow_logs
@@ -275,7 +288,7 @@ class TUIApp(App[None]):
         try:
             content_changed = False
             selected_task = self._tasks[self._selected_index] if self._tasks else None
-            source_key, title, lines, force_jsonl, tailer, term = self._resolve_log_source()
+            source_key, _title, lines, force_jsonl, tailer, term = self._resolve_log_source()
             log_view = self.query_one("#log-view", RichLog)
 
             if self._description_preview_task_id and selected_task:
@@ -283,7 +296,7 @@ class TUIApp(App[None]):
                     self._description_preview_task_id = selected_task.id
 
                 self.query_one("#log-title", Static).update(
-                    f"Description | {selected_task.id[:8]} | enter/esc to close"
+                    f"description | {selected_task.id[:8]} | esc to close"
                 )
                 log_view.clear()
                 log_view.write(Markdown(selected_task.description or "_(no description)_"))
@@ -294,9 +307,9 @@ class TUIApp(App[None]):
                 self._rendered_generation = 0
                 return
 
-            title_bits = [title]
-            title_bits.append("follow:on" if self._follow_logs else "follow:off")
-            self.query_one("#log-title", Static).update(" | ".join(title_bits))
+            self.query_one("#log-title", Static).update(
+                "follow:on" if self._follow_logs else "follow:off"
+            )
 
             source_changed = source_key != self._last_source_key
             if source_changed:
@@ -412,6 +425,20 @@ class TUIApp(App[None]):
         if isinstance(row_index, int):
             self._set_selected_row(row_index)
 
+    def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
+        """Switch log source when a tab is clicked or activated."""
+        if event.tab is None:
+            return
+        source = event.tab.id.removeprefix("source-")
+        if source == self._active_source:
+            return
+        self._active_source = source
+        self._last_source_key = ""
+        self._rendered_line_count = 0
+        self._rendered_total = 0
+        self._rendered_generation = 0
+        self._refresh_logs()
+
     def action_next_log_source(self) -> None:
         """Cycle to the next log source tab."""
         index = _LOG_SOURCES.index(self._active_source)
@@ -420,6 +447,7 @@ class TUIApp(App[None]):
         self._rendered_line_count = 0
         self._rendered_total = 0
         self._rendered_generation = 0
+        self.query_one("#log-tabs", Tabs).active = f"source-{self._active_source}"
         self._refresh_logs()
 
     def action_prev_log_source(self) -> None:
@@ -430,6 +458,7 @@ class TUIApp(App[None]):
         self._rendered_line_count = 0
         self._rendered_total = 0
         self._rendered_generation = 0
+        self.query_one("#log-tabs", Tabs).active = f"source-{self._active_source}"
         self._refresh_logs()
 
     def action_toggle_follow(self) -> None:
