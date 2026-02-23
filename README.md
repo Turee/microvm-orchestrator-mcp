@@ -227,6 +227,22 @@ microvm-orchestrator serve
 
 The server listens on `http://127.0.0.1:8765` and serves all registered repositories.
 
+When started without `--no-tui`, the server launches a Textual dashboard on the main thread:
+
+- Left pane: live `Tasks` table (status, slot, description)
+- Right pane: streaming log viewer with switchable sources (`VM Log`, `Claude`, `Server Log`)
+- Footer: active keybindings and quick controls
+
+### Textual Dashboard Controls
+
+- `q` quit dashboard/server process
+- `Tab` switch log source (`VM Log` -> `Claude` -> `Server Log`)
+- `f` toggle log auto-follow
+- `c` clear current log viewport
+- `End` jump to newest log entries
+- `t` focus task table pane
+- `l` focus log pane
+
 ## CLI Reference
 
 ### `microvm-orchestrator allow [PATH] [--alias ALIAS]`
@@ -266,6 +282,8 @@ microvm-orchestrator remove myapp
 ### `microvm-orchestrator serve`
 
 Start the MCP server. Serves all registered repositories.
+
+- `--no-tui`: run headless without launching the Textual dashboard
 
 ### `microvm-orchestrator setup-token`
 

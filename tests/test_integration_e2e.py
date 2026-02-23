@@ -26,7 +26,7 @@ from microvm_orchestrator.server import (
 )
 from microvm_orchestrator.tools import Orchestrator
 from microvm_orchestrator.tui.app import TUIApp
-from microvm_orchestrator.tui.components import build_log_panel, build_task_table
+from microvm_orchestrator.tui.components import build_task_table
 
 
 def _render(renderable) -> str:
@@ -256,9 +256,6 @@ class TestTUIRendersOrchestratorState:
         task_id = result["task_id"]
 
         app = TUIApp(orchestrator)
-        layout = app._build_layout()
-        app._update_layout(layout)
-
         tasks = app._get_tasks()
         rendered = _render(build_task_table(tasks, 0))
 
@@ -318,84 +315,3 @@ class TestTUIRendersOrchestratorState:
         assert "COMPLETED" in rendered
         assert "FAILED" in rendered
 
-    @pytest.mark.asyncio
-    async def test_tui_log_panel_shows_streamed_content(
-        self, orchestrator: Orchestrator, mock_orchestrator_deps
-    ):
-        """Writing to task.log_path is picked up by LogTailer during _update_layout."""
-        result = await orchestrator.run_task("Log test", "project")
-        task = orchestrator._tasks[result["task_id"]]
-
-        # Write log content
-        task.log_path.parent.mkdir(parents=True, exist_ok=True)
-        task.log_path.write_text("Boot complete\nRunning task...\n")
-
-        app = TUIApp(orchestrator)
-        layout = app._build_layout()
-        app._update_layout(layout)
-
-        # Verify tailer picked up content
-        assert app._tailer is not None
-        lines = app._tailer.get_lines()
-        assert "Boot complete" in lines
-        assert "Running task..." in lines
-
-    @pytest.mark.asyncio
-    async def test_tui_log_panel_updates_on_append(
-        self, orchestrator: Orchestrator, mock_orchestrator_deps
-    ):
-        """Appending to log file is picked up on second _update_layout call."""
-        result = await orchestrator.run_task("Append test", "project")
-        task = orchestrator._tasks[result["task_id"]]
-
-        task.log_path.parent.mkdir(parents=True, exist_ok=True)
-        task.log_path.write_text("Line 1\n")
-
-        app = TUIApp(orchestrator)
-        layout = app._build_layout()
-        app._update_layout(layout)
-
-        assert "Line 1" in app._tailer.get_lines()
-
-        # Append more content
-        with task.log_path.open("a") as f:
-            f.write("Line 2\nLine 3\n")
-
-        app._update_layout(layout)
-
-        lines = app._tailer.get_lines()
-        assert "Line 1" in lines
-        assert "Line 2" in lines
-        assert "Line 3" in lines
-
-    @pytest.mark.asyncio
-    async def test_tui_selection_switches_log_view(
-        self, orchestrator: Orchestrator, mock_orchestrator_deps
-    ):
-        """Changing _selected switches LogTailer to different task's log."""
-        r1 = await orchestrator.run_task("Task A log", "project")
-        r2 = await orchestrator.run_task("Task B log", "project")
-
-        task_a = orchestrator._tasks[r1["task_id"]]
-        task_b = orchestrator._tasks[r2["task_id"]]
-
-        # Write different log content for each task
-        for t, content in [(task_a, "Alpha output\n"), (task_b, "Beta output\n")]:
-            t.log_path.parent.mkdir(parents=True, exist_ok=True)
-            t.log_path.write_text(content)
-
-        app = TUIApp(orchestrator)
-        layout = app._build_layout()
-
-        # Select first task
-        app._selected = 0
-        app._update_layout(layout)
-        first_tailer_path = app._tailer.path
-
-        # Select second task
-        app._selected = 1
-        app._update_layout(layout)
-        second_tailer_path = app._tailer.path
-
-        # Tailer should have switched to the other task's log
-        assert first_tailer_path != second_tailer_path

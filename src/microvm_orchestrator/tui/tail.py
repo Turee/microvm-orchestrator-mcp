@@ -11,6 +11,10 @@ class LogTailer:
 
     Uses seek() to resume from the last read position on each poll,
     and a deque(maxlen) to cap memory usage.
+
+    ``total_appended`` is a monotonically increasing counter of all lines
+    ever appended to the buffer, allowing callers to detect new content
+    even after the deque wraps and ``len()`` stops growing.
     """
 
     def __init__(self, path: str | Path, maxlen: int = 200) -> None:
@@ -19,6 +23,7 @@ class LogTailer:
         self._lines: deque[str] = deque(maxlen=maxlen)
         self._pos: int = 0
         self._partial: str = ""  # incomplete trailing line from last read
+        self.total_appended: int = 0
 
     def poll(self) -> None:
         """Read any new data appended since the last poll."""
@@ -43,6 +48,7 @@ class LogTailer:
 
         for line in parts:
             self._lines.append(line)
+        self.total_appended += len(parts)
 
     def get_lines(self) -> list[str]:
         """Return the current buffer contents as a list."""
@@ -53,3 +59,4 @@ class LogTailer:
         self._lines.clear()
         self._pos = 0
         self._partial = ""
+        self.total_appended = 0
