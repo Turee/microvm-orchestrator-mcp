@@ -198,9 +198,19 @@ class TUIApp(App[None]):
         """Get or create a TermScreen for the given source key/path pair."""
         term = self._term_screens.get(source_key)
         if term is None or term.path != path:
-            term = TermScreen(path)
+            cols, rows = self._log_view_size()
+            term = TermScreen(path, columns=cols, lines=rows)
             self._term_screens[source_key] = term
         return term
+
+    def _log_view_size(self) -> tuple[int, int]:
+        """Return (columns, lines) of the log-view widget, with sane defaults."""
+        try:
+            log_view = self.query_one("#log-view", RichLog)
+            w, h = log_view.size.width, log_view.size.height
+            return (w if w > 0 else 120, h if h > 0 else 50)
+        except Exception:
+            return (120, 50)
 
     def _resolve_log_source(self) -> tuple[str, str, list[str], bool, LogTailer | None, TermScreen | None]:
         """Resolve active source metadata and lines to display.
@@ -365,13 +375,11 @@ class TUIApp(App[None]):
             self._refreshing_logs = False
 
     def on_resize(self, event: events.Resize) -> None:
-        """Resize pyte screens to match the log pane width."""
+        """Resize pyte screens to match the log pane dimensions."""
         try:
-            log_view = self.query_one("#log-view", RichLog)
-            width = log_view.size.width
-            if width > 0:
-                for term in self._term_screens.values():
-                    term.resize(columns=width, lines=50)
+            cols, rows = self._log_view_size()
+            for term in self._term_screens.values():
+                term.resize(columns=cols, lines=rows)
         except Exception:
             pass
 
