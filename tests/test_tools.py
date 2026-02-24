@@ -371,6 +371,8 @@ class TestEdgeCases:
 
         with patch.object(Orchestrator, "_get_plugin_dir", return_value=tmp_project):
             orch = Orchestrator(repo_path=tmp_project)
+            orch.registry = RepoRegistry(registry_path=tmp_path / "allowed-repos.json")
+            orch.slot_manager = SlotManager(assignments_path=tmp_path / "slot-assignments.json")
             orch.registry.allow(tmp_project, alias="test-project")
 
         # Point token file to a non-existent path

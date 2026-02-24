@@ -12,8 +12,7 @@ STREAM_LOG_FILE="$WORKSPACE/claude-stream.jsonl"
 DEBUG_LOG_FILE="$WORKSPACE/task-runner.log"
 RESULT_WRITTEN=0
 CHOWN_TIMEOUT_SEC="${CHOWN_TIMEOUT_SEC:-120}"
-NIX_DEVELOP_PROBE_TIMEOUT_SEC="${NIX_DEVELOP_PROBE_TIMEOUT_SEC:-180}"
-CLAUDE_LAUNCH_TIMEOUT_SEC="${CLAUDE_LAUNCH_TIMEOUT_SEC:-7200}"
+CLAUDE_LAUNCH_TIMEOUT_SEC="${CLAUDE_LAUNCH_TIMEOUT_SEC:-0}"
 
 # Read task ID if available
 TASK_ID=""
@@ -250,8 +249,7 @@ log "Task: $TASK"
 
 # Debug: environment + versions (safe)
 log "DEBUG: uname=$(uname -a 2>/dev/null || true)"
-log "DEBUG: node=$(@nodejs@/bin/node --version 2>/dev/null || echo 'missing')"
-log "DEBUG: npx=$(@nodejs@/bin/npx --version 2>/dev/null || echo 'missing')"
+log "DEBUG: claude=$(@claudeCode@/bin/claude --version 2>/dev/null || echo 'missing')"
 log "DEBUG: git=$(@git@/bin/git --version 2>/dev/null || echo 'missing')"
 log "DEBUG: jq=$(@jq@/bin/jq --version 2>/dev/null || echo 'missing')"
 log "DEBUG: grep=$(@gnugrep@/bin/grep --version 2>/dev/null | head -1 || echo 'missing')"
@@ -330,15 +328,10 @@ log "DEBUG: ownership verification complete"
 NIX_PROBE_STDERR="/tmp/nix-develop-test.err"
 NIX_PROBE_STDOUT="/tmp/nix-develop-test.out"
 DEV_SHELL_TARGET="path:."
-log "DEBUG: native devShell probe start (timeout=${NIX_DEVELOP_PROBE_TIMEOUT_SEC}s)"
-if run_with_timeout "$NIX_DEVELOP_PROBE_TIMEOUT_SEC" "native nix develop probe" su -s @bash@/bin/bash claude -c "cd \"$REPO_DIR\" && @nix@/bin/nix develop path:. --command true" >"$NIX_PROBE_STDOUT" 2>"$NIX_PROBE_STDERR"; then
+log "DEBUG: native devShell probe start"
+if su -s @bash@/bin/bash claude -c "cd \"$REPO_DIR\" && @nix@/bin/nix develop path:. --command true" >"$NIX_PROBE_STDOUT" 2>"$NIX_PROBE_STDERR"; then
   log "DEBUG: native devShell probe succeeded"
 else
-  probe_rc="$?"
-  if [ "$probe_rc" -eq 124 ]; then
-    write_result false "Task launch timeout" "Timed out during native nix develop probe after ${NIX_DEVELOP_PROBE_TIMEOUT_SEC}s. See $NIX_PROBE_STDERR for details." 124
-    exit 124
-  fi
   log "DEBUG: native devShell probe failed; falling back to x86_64-linux"
   if [ -f "$NIX_PROBE_STDERR" ]; then
     log "DEBUG: native probe stderr tail:"
@@ -398,7 +391,7 @@ if [ -n "$MODEL" ]; then
 fi
 
 echo "Using devShell target: $DEV_SHELL_TARGET" >&2
-exec @nix@/bin/nix develop $DEV_SHELL_TARGET --command @nodejs@/bin/npx -y @anthropic-ai/claude-code@latest --dangerously-skip-permissions --output-format stream-json --verbose \$MODEL_FLAG -p "\$TASK"
+exec @nix@/bin/nix develop $DEV_SHELL_TARGET --command @claudeCode@/bin/claude --dangerously-skip-permissions --output-format stream-json --verbose \$MODEL_FLAG -p "\$TASK"
 EOF
 chmod 755 "$WRAPPER"
 

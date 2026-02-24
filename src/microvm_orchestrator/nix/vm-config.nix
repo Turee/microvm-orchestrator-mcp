@@ -11,6 +11,11 @@
 }:
 { pkgs, lib, ... }:
 let
+  # Fetch always-up-to-date Claude Code package (hourly updates from npm)
+  claudeCodeSrc = builtins.fetchTarball {
+    url = "https://github.com/sadjow/claude-code-nix/archive/refs/heads/main.tar.gz";
+  };
+
   # Script to run Claude Code task
   runClaudeTask = pkgs.runCommand "run-claude-task" { } ''
     cp ${
@@ -19,7 +24,7 @@ let
         git = pkgs.git;
         jq = pkgs.jq;
         gawk = pkgs.gawk;
-        nodejs = pkgs.nodejs_22;
+        claudeCode = pkgs.claude-code;
         gnugrep = pkgs.gnugrep;
         nix = pkgs.nix;
       }
@@ -28,6 +33,13 @@ let
   '';
 in
 {
+  # Override claude-code with the latest version from claude-code-nix
+  nixpkgs.overlays = [
+    (final: prev: {
+      claude-code = final.callPackage "${claudeCodeSrc}/package.nix" { };
+    })
+  ];
+
   networking.hostName = "claude-microvm";
   networking.useDHCP = true;
   # Use Cloudflare DNS as fallback since vfkit NAT may not provide DNS
@@ -78,11 +90,14 @@ in
       curl
       coreutils
       gnugrep
-      nodejs_22
+      claude-code
       podman-compose # For docker-compose.yml support
     ];
 
-  # Enable networking for npm/API calls
+  # Allow unfree packages (claude-code has an unfree license)
+  nixpkgs.config.allowUnfree = true;
+
+  # Enable networking for API calls
   networking.firewall.enable = false;
 
   # Enable Nix flakes and modern CLI for in-VM builds

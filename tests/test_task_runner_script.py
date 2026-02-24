@@ -20,15 +20,14 @@ def _script_text() -> str:
 
 
 def test_task_runner_has_stage_logging_and_timeouts() -> None:
-    """Critical launch stages should be logged and timeout-bounded."""
+    """Critical launch stages should be logged and timeout-bounded where needed."""
     script = _script_text()
 
     assert 'CHOWN_TIMEOUT_SEC="${CHOWN_TIMEOUT_SEC:-120}"' in script
-    assert 'NIX_DEVELOP_PROBE_TIMEOUT_SEC="${NIX_DEVELOP_PROBE_TIMEOUT_SEC:-180}"' in script
-    assert 'CLAUDE_LAUNCH_TIMEOUT_SEC="${CLAUDE_LAUNCH_TIMEOUT_SEC:-7200}"' in script
+    assert 'CLAUDE_LAUNCH_TIMEOUT_SEC="${CLAUDE_LAUNCH_TIMEOUT_SEC:-0}"' in script
     assert "run_with_timeout()" in script
     assert 'log "DEBUG: ownership stage start"' in script
-    assert 'log "DEBUG: native devShell probe start' in script
+    assert 'log "DEBUG: native devShell probe start"' in script
     assert 'log "DEBUG: Claude launch stage start' in script
 
 
@@ -42,9 +41,17 @@ def test_task_runner_uses_narrow_ownership_then_fallback() -> None:
     assert 'run_with_timeout "$CHOWN_TIMEOUT_SEC" "recursive repo chown fallback" chown -R claude:users "$REPO_DIR"' in script
 
 
-def test_task_runner_writes_timeout_failures_to_result() -> None:
-    """Launch/probe timeouts should surface explicit failure results."""
+def test_task_runner_native_probe_has_no_timeout() -> None:
+    """Native nix develop probe should run without a watchdog timeout."""
     script = _script_text()
 
-    assert 'write_result false "Task launch timeout" "Timed out during native nix develop probe' in script
+    assert 'if su -s @bash@/bin/bash claude -c "cd \\"$REPO_DIR\\" && @nix@/bin/nix develop path:. --command true"' in script
+    assert 'run_with_timeout "$NIX_DEVELOP_PROBE_TIMEOUT_SEC" "native nix develop probe"' not in script
+    assert 'Timed out during native nix develop probe' not in script
+
+
+def test_task_runner_writes_launch_timeout_failures_to_result() -> None:
+    """Claude launch pipeline timeout should surface explicit failure results."""
+    script = _script_text()
+
     assert 'write_result false "Task launch timeout" "Timed out running Claude launch pipeline' in script

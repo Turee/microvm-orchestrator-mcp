@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from microvm_orchestrator.core.registry import RepoRegistry
+from microvm_orchestrator.core.slots import SlotManager
 from microvm_orchestrator.tools import Orchestrator
 
 
@@ -218,8 +220,12 @@ class TestNixDevelopIntegration:
         2. Claude can run bun --version successfully
         3. The version output is captured correctly
         """
-        # Create orchestrator and register project
+        # Create orchestrator with isolated registry
         orchestrator = Orchestrator(repo_path=bun_flake_project)
+        isolated_dir = bun_flake_project / ".microvm"
+        isolated_dir.mkdir(exist_ok=True)
+        orchestrator.registry = RepoRegistry(registry_path=isolated_dir / "test-repos.json")
+        orchestrator.slot_manager = SlotManager(assignments_path=isolated_dir / "test-slots.json")
         orchestrator.registry.allow(bun_flake_project, alias="bun-test")
 
         # Start task using repo alias (slot assigned automatically)
@@ -284,8 +290,12 @@ class TestNixDevelopIntegration:
         3. The writable Nix store allows rebuilding the environment
         4. The new tool becomes available after modification
         """
-        # Create orchestrator and register project
+        # Create orchestrator with isolated registry
         orchestrator = Orchestrator(repo_path=minimal_flake_project)
+        isolated_dir = minimal_flake_project / ".microvm"
+        isolated_dir.mkdir(exist_ok=True)
+        orchestrator.registry = RepoRegistry(registry_path=isolated_dir / "test-repos.json")
+        orchestrator.slot_manager = SlotManager(assignments_path=isolated_dir / "test-slots.json")
         orchestrator.registry.allow(minimal_flake_project, alias="cowsay-test")
 
         # Start task using repo alias (slot assigned automatically)
