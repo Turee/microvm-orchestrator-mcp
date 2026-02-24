@@ -1,115 +1,199 @@
-"""Tests for tui/format.py - Claude JSONL stream-json formatting."""
+"""Tests for tui/format.py - Claude stream timeline formatting."""
+
+from __future__ import annotations
 
 import json
-from io import StringIO
 
-from rich.console import Console
-from rich.text import Text
-
-from microvm_orchestrator.tui.format import _sanitize_line, format_jsonl_line, format_log_content
-
-
-def _render(text: Text) -> str:
-    """Render Rich Text to plain string (no ANSI)."""
-    buf = StringIO()
-    console = Console(file=buf, width=120, force_terminal=True, no_color=True)
-    console.print(text, end="")
-    return buf.getvalue()
+from microvm_orchestrator.tui.format import (
+    ClaudeParseState,
+    _sanitize_line,
+    format_jsonl_line,
+    format_log_content,
+    parse_jsonl_line,
+    render_parsed_events,
+)
 
 
 def _jsonl(*events: dict) -> list[str]:
     """Convert dicts to JSONL lines."""
-    return [json.dumps(e) for e in events]
+    return [json.dumps(event) for event in events]
 
 
-# ── format_jsonl_line ───────────────────────────────────────────
+class TestParseJsonlLine:
+    def test_assistant_tool_use_records_state(self):
+        state = ClaudeParseState()
+        events = parse_jsonl_line(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "id": "msg_1",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": "toolu_123",
+                                "name": "Bash",
+                                "input": {"command": "bun test"},
+                            }
+                        ],
+                    },
+                }
+            ),
+            state,
+        )
 
+        assert len(events) == 1
+        assert events[0].kind == "tool_use"
+        assert events[0].tool_name == "Bash"
+        assert state.tool_names["toolu_123"] == "Bash"
 
-class TestFormatJsonlLine:
-    def test_text_delta(self):
-        event = {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hello"}}
-        result = format_jsonl_line(json.dumps(event))
-        assert result == ("Hello", "")
+    def test_user_tool_result_uses_recorded_tool_name(self):
+        state = ClaudeParseState(tool_names={"toolu_123": "Bash"})
+        events = parse_jsonl_line(
+            json.dumps(
+                {
+                    "type": "user",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "toolu_123",
+                                "content": "Exit code 1",
+                                "is_error": True,
+                            }
+                        ]
+                    },
+                }
+            ),
+            state,
+        )
 
-    def test_empty_text_delta_skipped(self):
-        event = {"type": "content_block_delta", "delta": {"type": "text_delta", "text": ""}}
-        assert format_jsonl_line(json.dumps(event)) is None
-
-    def test_input_json_delta_skipped(self):
-        event = {"type": "content_block_delta", "delta": {"type": "input_json_delta", "partial_json": '{"pa'}}
-        assert format_jsonl_line(json.dumps(event)) is None
-
-    def test_tool_use_block_start(self):
-        event = {"type": "content_block_start", "content_block": {"type": "tool_use", "name": "Read"}}
-        result = format_jsonl_line(json.dumps(event))
-        assert result is not None
-        text, style = result
-        assert "Read" in text
-        assert "cyan" in style
-
-    def test_non_tool_block_start_skipped(self):
-        event = {"type": "content_block_start", "content_block": {"type": "text"}}
-        assert format_jsonl_line(json.dumps(event)) is None
-
-    def test_result_success(self):
-        event = {"type": "result", "subtype": "success", "result": "Task completed", "cost_usd": 0.0123, "duration_ms": 4500}
-        result = format_jsonl_line(json.dumps(event))
-        assert result is not None
-        text, style = result
-        assert "Task completed" in text
-        assert "$0.0123" in text
-        assert "4.5s" in text
-        assert "green" in style
-
-    def test_result_error(self):
-        event = {"type": "result", "subtype": "error", "result": "Something failed"}
-        result = format_jsonl_line(json.dumps(event))
-        assert result is not None
-        text, style = result
-        assert "Something failed" in text
-        assert "red" in style
-
-    def test_result_empty_skipped(self):
-        event = {"type": "result", "subtype": "success"}
-        assert format_jsonl_line(json.dumps(event)) is None
-
-    def test_system_init(self):
-        event = {"type": "system", "subtype": "init", "model": "claude-sonnet-4-5-20250929", "session_id": "abc12345-full-uuid"}
-        result = format_jsonl_line(json.dumps(event))
-        assert result is not None
-        text, style = result
-        assert "claude-sonnet-4-5-20250929" in text
-        assert "abc12345" in text
-        assert "dim" in style
-
-    def test_system_non_init_skipped(self):
-        event = {"type": "system", "subtype": "other"}
-        assert format_jsonl_line(json.dumps(event)) is None
-
-    def test_message_start_skipped(self):
-        event = {"type": "message_start"}
-        assert format_jsonl_line(json.dumps(event)) is None
-
-    def test_message_stop_skipped(self):
-        event = {"type": "message_stop"}
-        assert format_jsonl_line(json.dumps(event)) is None
-
-    def test_assistant_skipped(self):
-        event = {"type": "assistant", "message": {"content": [{"type": "text", "text": "hello"}]}}
-        assert format_jsonl_line(json.dumps(event)) is None
+        assert len(events) == 1
+        assert events[0].kind == "tool_result"
+        assert events[0].tool_name == "Bash"
+        assert events[0].is_error is True
+        assert "Exit code 1" in events[0].text
 
     def test_plain_text_passthrough(self):
-        assert format_jsonl_line("just plain text") == ("just plain text", "")
+        events = parse_jsonl_line("devShell ready")
+        assert len(events) == 1
+        assert events[0].kind == "plain"
+        assert events[0].text == "devShell ready"
 
     def test_invalid_json_passthrough(self):
-        assert format_jsonl_line("{bad json") == ("{bad json", "")
+        events = parse_jsonl_line("{broken json")
+        assert len(events) == 1
+        assert events[0].kind == "plain"
+        assert events[0].text == "{broken json"
 
-    def test_empty_line_skipped(self):
-        assert format_jsonl_line("") is None
-        assert format_jsonl_line("  ") is None
+    def test_rate_limit_event(self):
+        events = parse_jsonl_line(
+            json.dumps(
+                {
+                    "type": "rate_limit_event",
+                    "rate_limit_info": {
+                        "status": "rejected",
+                        "rateLimitType": "five_hour",
+                        "resetsAt": 1771848000,
+                    },
+                }
+            )
+        )
+        assert len(events) == 1
+        assert events[0].kind == "rate_limit"
+        assert "five_hour" in events[0].text
+
+    def test_legacy_delta_still_parsed(self):
+        events = parse_jsonl_line(
+            json.dumps(
+                {
+                    "type": "content_block_delta",
+                    "delta": {"type": "text_delta", "text": "Hello"},
+                }
+            )
+        )
+        assert len(events) == 1
+        assert events[0].kind == "legacy_delta_text"
+        assert events[0].text == "Hello"
 
 
-# ── format_log_content ──────────────────────────────────────────
+class TestRenderParsedEvents:
+    def test_standard_hides_thinking(self):
+        events = parse_jsonl_line(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {"type": "thinking", "thinking": "private"},
+                            {"type": "text", "text": "public"},
+                        ]
+                    },
+                }
+            ),
+            ClaudeParseState(),
+        )
+
+        rendered = render_parsed_events(events, mode="standard", show_thinking=False)
+        assert "public" in rendered.plain
+        assert "private" not in rendered.plain
+
+    def test_thinking_toggle_shows_thinking(self):
+        events = parse_jsonl_line(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [{"type": "thinking", "thinking": "private"}],
+                    },
+                }
+            ),
+            ClaudeParseState(),
+        )
+
+        rendered = render_parsed_events(events, mode="standard", show_thinking=True)
+        assert "THINK:" in rendered.plain
+        assert "private" in rendered.plain
+
+    def test_compact_hides_assistant_text(self):
+        events = parse_jsonl_line(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [{"type": "text", "text": "assistant body"}],
+                    },
+                }
+            ),
+            ClaudeParseState(),
+        )
+
+        rendered = render_parsed_events(events, mode="compact")
+        assert rendered.plain == ""
+
+    def test_full_shows_unknown_event(self):
+        events = parse_jsonl_line(json.dumps({"type": "message_custom", "payload": 1}))
+        rendered = render_parsed_events(events, mode="full")
+        assert "EVENT:" in rendered.plain
+        assert "message_custom" in rendered.plain
+
+
+class TestFormatJsonlLineCompatibility:
+    def test_returns_none_for_noise(self):
+        assert format_jsonl_line(json.dumps({"type": "message_start"})) is None
+
+    def test_renders_assistant_text(self):
+        rendered = format_jsonl_line(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {"content": [{"type": "text", "text": "hello"}]},
+                }
+            )
+        )
+        assert rendered is not None
+        text, _style = rendered
+        assert "A: hello" in text
 
 
 class TestFormatLogContent:
@@ -118,142 +202,72 @@ class TestFormatLogContent:
         assert "no output" in result.plain
 
     def test_plain_text_passthrough(self):
-        lines = ["hello world", "second line"]
-        result = format_log_content(lines)
-        assert result.plain == "hello world\nsecond line"
+        result = format_log_content(["hello", "world"])
+        assert result.plain == "hello\nworld"
 
-    def test_jsonl_text_deltas(self):
+    def test_force_jsonl_renders_activity_timeline(self):
         lines = _jsonl(
-            {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hello "}},
-            {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "world!"}},
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_1",
+                            "name": "Bash",
+                            "input": {"command": "bun test"},
+                        }
+                    ]
+                },
+            },
+            {
+                "type": "user",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_1",
+                            "content": "Exit code 1",
+                            "is_error": True,
+                        }
+                    ]
+                },
+            },
+            {
+                "type": "result",
+                "subtype": "success",
+                "result": "Done",
+                "cost_usd": 0.5,
+            },
         )
-        result = format_log_content(lines)
-        assert "Hello " in result.plain
-        assert "world!" in result.plain
+        result = format_log_content(lines, force_jsonl=True)
 
-    def test_jsonl_tool_and_text(self):
-        lines = _jsonl(
-            {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Let me check."}},
-            {"type": "content_block_start", "content_block": {"type": "tool_use", "name": "Bash"}},
-            {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Done."}},
-        )
-        result = format_log_content(lines)
         plain = result.plain
-        assert "Let me check." in plain
-        assert "Bash" in plain
-        assert "Done." in plain
+        assert "TOOL> Bash" in plain
+        assert "TOOL< Bash [ERROR]" in plain
+        assert "RESULT:" in plain
+        assert "$0.5000" in plain
 
-    def test_jsonl_skips_noise(self):
-        lines = _jsonl(
-            {"type": "message_start"},
-            {"type": "content_block_start", "content_block": {"type": "text"}},
-            {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "visible"}},
-            {"type": "content_block_stop"},
-            {"type": "message_stop"},
-        )
-        result = format_log_content(lines)
-        assert result.plain.strip() == "visible"
-
-    def test_jsonl_with_result(self):
-        lines = _jsonl(
-            {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Working..."}},
-            {"type": "result", "subtype": "success", "result": "All done", "cost_usd": 0.05},
-        )
-        result = format_log_content(lines)
-        plain = result.plain
-        assert "Working..." in plain
-        assert "All done" in plain
-        assert "$0.0500" in plain
-
-    def test_jsonl_all_skipped_shows_no_output(self):
-        lines = _jsonl(
-            {"type": "message_start"},
-            {"type": "message_stop"},
-        )
-        result = format_log_content(lines)
-        assert "no output" in result.plain
-
-    def test_jsonl_system_init(self):
-        lines = _jsonl(
-            {"type": "system", "subtype": "init", "model": "claude-sonnet-4-5-20250929"},
-            {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hi"}},
-        )
-        result = format_log_content(lines)
-        assert "claude-sonnet-4-5-20250929" in result.plain
-        assert "Hi" in result.plain
-
-    def test_mixed_plain_and_json_detected_as_plain(self):
-        # First non-empty line is not JSON, so all treated as plain text
-        lines = ["plain first", '{"type": "content_block_delta", "delta": {"type": "text_delta", "text": "x"}}']
-        result = format_log_content(lines)
-        assert "plain first" in result.plain
-
-    def test_force_jsonl_with_leading_plain_text(self):
-        """force_jsonl=True processes JSONL even when first line is plain text."""
+    def test_mixed_plain_and_json_force_jsonl(self):
         lines = [
-            "NixOS boot message",
-            '{"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hello"}}',
-            '{"type": "content_block_start", "content_block": {"type": "tool_use", "name": "Bash"}}',
+            "Using devShell target: path:.",
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [{"type": "text", "text": "Running tests"}],
+                    },
+                }
+            ),
         ]
         result = format_log_content(lines, force_jsonl=True)
-        plain = result.plain
-        # Plain text passes through, JSONL events are parsed
-        assert "NixOS boot message" in plain
-        assert "Hello" in plain
-        assert "Bash" in plain
+        assert "Using devShell target: path:." in result.plain
+        assert "A: Running tests" in result.plain
 
     def test_force_jsonl_false_preserves_autodetect(self):
-        """force_jsonl=False (default) still auto-detects plain text."""
-        lines = ["plain first", '{"type": "content_block_delta", "delta": {"type": "text_delta", "text": "x"}}']
+        lines = ["plain first", json.dumps({"type": "assistant", "message": {"content": []}})]
         result = format_log_content(lines, force_jsonl=False)
-        # Auto-detect sees plain first line, treats all as plain
         assert "plain first" in result.plain
-
-
-# ── Integration with Rich rendering ────────────────────────────
-
-
-class TestRichRendering:
-    def test_styled_tool_name(self):
-        lines = _jsonl(
-            {"type": "content_block_start", "content_block": {"type": "tool_use", "name": "Write"}},
-        )
-        result = format_log_content(lines)
-        rendered = _render(result)
-        assert "Write" in rendered
-
-    def test_full_session_rendering(self):
-        """Simulate a realistic Claude stream-json session."""
-        lines = _jsonl(
-            {"type": "system", "subtype": "init", "model": "claude-sonnet-4-5-20250929", "session_id": "sess-12345678"},
-            {"type": "message_start", "message": {"role": "assistant"}},
-            {"type": "content_block_start", "content_block": {"type": "text"}},
-            {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "I'll help you "}},
-            {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "fix that bug."}},
-            {"type": "content_block_stop"},
-            {"type": "content_block_start", "content_block": {"type": "tool_use", "name": "Read", "id": "tool_1"}},
-            {"type": "content_block_delta", "delta": {"type": "input_json_delta", "partial_json": '{"file'}},
-            {"type": "content_block_delta", "delta": {"type": "input_json_delta", "partial_json": '": "main.py"}'}},
-            {"type": "content_block_stop"},
-            {"type": "message_stop"},
-            {"type": "assistant", "message": {"content": [{"type": "text", "text": "I'll help you fix that bug."}]}},
-            {"type": "content_block_start", "content_block": {"type": "text"}},
-            {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Fixed!"}},
-            {"type": "content_block_stop"},
-            {"type": "result", "subtype": "success", "result": "Bug fixed successfully", "cost_usd": 0.0234, "duration_ms": 12000},
-        )
-        result = format_log_content(lines)
-        plain = result.plain
-        assert "claude-sonnet-4-5-20250929" in plain
-        assert "I'll help you fix that bug." in plain
-        assert "Read" in plain
-        assert "Fixed!" in plain
-        assert "Bug fixed successfully" in plain
-        assert "$0.0234" in plain
-        assert "12.0s" in plain
-
-
-# ── Sanitize tests ─────────────────────────────────────────────
 
 
 class TestSanitizeLine:
@@ -264,7 +278,7 @@ class TestSanitizeLine:
         assert _sanitize_line("\x1b[2Jhello\x1b[H") == "hello"
 
     def test_strips_control_characters(self):
-        # BEL (\x07), BS (\x08), etc. are stripped; \n and \t are kept
+        # BEL (\x07), BS (\x08), etc. are stripped; \n and \t are kept.
         assert _sanitize_line("hello\x07\x08world") == "helloworld"
 
     def test_preserves_tabs_and_normal_text(self):
@@ -280,7 +294,7 @@ class TestSanitizeLine:
 
 class TestFormatLogContentSanitization:
     def test_plain_text_ansi_stripped(self):
-        """ANSI escapes in plain-text (non-JSONL) serial output are stripped."""
+        """ANSI escapes in plain-text output are stripped."""
         lines = ["\x1b[32mboot\x1b[0m", "normal line", "\x1b[2J\x1b[Hclear"]
         result = format_log_content(lines)
         plain = result.plain

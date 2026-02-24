@@ -56,6 +56,10 @@ def test_init_defaults():
     assert app._row_task_ids == []
     assert app._col_keys == []
     assert app._row_task_state == {}
+    assert app._claude_mode == "standard"
+    assert app._claude_show_thinking is False
+    assert app._claude_show_raw is False
+    assert app._claude_parse_states == {}
 
 
 def test_get_tasks_reads_orchestrator_values():
@@ -122,6 +126,8 @@ def test_resolve_log_source_empty_when_no_selected_task():
 
 def test_action_next_and_prev_source_cycle():
     app = TUIApp()
+    tabs = MagicMock()
+    app.query_one = lambda *_args, **_kwargs: tabs  # type: ignore[method-assign]
     app._active_source = "task"
     app._last_source_key = "task:abc"
     app._rendered_line_count = 10
@@ -135,6 +141,29 @@ def test_action_next_and_prev_source_cycle():
 
         app.action_prev_log_source()
         assert app._active_source == "task"
+
+
+def test_claude_view_actions_update_state_and_refresh():
+    app = TUIApp()
+    app._active_source = "claude"
+    app._last_source_key = "claude:abc"
+    app._rendered_line_count = 10
+    app._rendered_total = 10
+
+    with patch.object(app, "_refresh_logs") as refresh_logs:
+        app.action_cycle_claude_mode()
+        assert app._claude_mode == "full"
+        assert app._last_source_key == ""
+        assert app._rendered_line_count == 0
+        assert app._rendered_total == 0
+
+        app.action_toggle_claude_thinking()
+        assert app._claude_show_thinking is True
+
+        app.action_toggle_claude_raw()
+        assert app._claude_show_raw is True
+
+    assert refresh_logs.call_count == 3
 
 
 def test_set_selected_row_clamps_and_resets_log_state():
@@ -156,13 +185,16 @@ def test_set_selected_row_clamps_and_resets_log_state():
 def test_on_mount_configures_widgets_and_intervals():
     app = TUIApp()
     table = MagicMock()
+    tabs = MagicMock()
     log_view = MagicMock()
     columns = ["col-1", "col-2", "col-3", "col-4"]
-    table.add_columns.return_value = columns
+    table.add_column.side_effect = columns
 
     def fake_query(selector, *_args, **_kwargs):
         if selector == "#task-table":
             return table
+        if selector == "#log-tabs":
+            return tabs
         if selector == "#log-view":
             return log_view
         raise AssertionError(f"Unexpected selector: {selector}")
@@ -174,8 +206,9 @@ def test_on_mount_configures_widgets_and_intervals():
 
     app.on_mount()
 
-    table.add_columns.assert_called_once_with("#", "ID", "Status", "Slot")
+    assert table.add_column.call_count == 4
     table.focus.assert_called_once()
+    assert tabs.active == "source-task"
     assert app._col_keys == columns
     assert log_view.auto_scroll is True
     assert log_view.max_lines == 1500
@@ -300,4 +333,3 @@ def test_differential_update_uses_update_cell():
 
     table.clear.assert_not_called()
     assert table.update_cell.call_count == 2
-

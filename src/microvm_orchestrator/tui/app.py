@@ -14,7 +14,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import DataTable, Footer, Header, RichLog, Static, Tab, Tabs
 
 from ..core.task import TaskStatus
-from .format import format_jsonl_line, format_log_content
+from .format import ClaudeParseState, ClaudeViewMode, parse_jsonl_line, render_parsed_events
 from .log_capture import LogCapture
 from .tail import LogTailer
 from .term_screen import TermScreen
@@ -34,6 +34,7 @@ _LOG_LABELS: dict[str, str] = {
     "claude": "Claude",
     "server": "Server Log",
 }
+_CLAUDE_VIEW_MODES: tuple[ClaudeViewMode, ...] = ("compact", "standard", "full")
 _MAX_LOG_LINES_PER_REFRESH = 200
 
 
@@ -46,6 +47,9 @@ class TUIApp(App[None]):
         Binding("tab", "next_log_source", "Source"),
         Binding("shift+tab", "prev_log_source", "Prev source", show=False),
         Binding("f", "toggle_follow", "Follow"),
+        Binding("v", "cycle_claude_mode", "View"),
+        Binding("x", "toggle_claude_thinking", "Thinking"),
+        Binding("r", "toggle_claude_raw", "Raw"),
         Binding("ctrl+r", "reset_layout", "Reset"),
         Binding("enter", "show_description", "Describe"),
         Binding("l", "focus_log", "Focus log", show=False),
@@ -79,6 +83,10 @@ class TUIApp(App[None]):
         self._row_task_ids: list[str] = []
         self._col_keys: list[object] = []
         self._row_task_state: dict[str, tuple[TaskStatus, int]] = {}
+        self._claude_mode: ClaudeViewMode = "standard"
+        self._claude_show_thinking = False
+        self._claude_show_raw = False
+        self._claude_parse_states: dict[str, ClaudeParseState] = {}
 
     def compose(self) -> ComposeResult:
         """Compose the Textual widget tree."""
@@ -259,15 +267,50 @@ class TUIApp(App[None]):
         if lines:
             log_view.write(Text("\n".join(lines)))
 
-    def _write_jsonl_delta(self, log_view: RichLog, lines: list[str]) -> bool:
-        """Append parsed JSONL delta lines without rebuilding full panel."""
-        rendered = Text()
+    def _reset_render_state(self, *, clear_source: bool = True) -> None:
+        """Reset incremental rendering counters and optionally current source key."""
+        if clear_source:
+            self._last_source_key = ""
+        self._rendered_line_count = 0
+        self._rendered_total = 0
+        self._rendered_generation = 0
+
+    def _log_title_text(self) -> str:
+        """Build status line text for the log pane title."""
+        base = "follow:on" if self._follow_logs else "follow:off"
+        if self._active_source != "claude":
+            return base
+
+        thinking = "on" if self._claude_show_thinking else "off"
+        raw = "on" if self._claude_show_raw else "off"
+        return f"{base} | view:{self._claude_mode} | think:{thinking} | raw:{raw}"
+
+    def _get_claude_parse_state(self, source_key: str, *, reset: bool = False) -> ClaudeParseState:
+        """Get parser state for a Claude log source, optionally resetting it."""
+        if reset or source_key not in self._claude_parse_states:
+            self._claude_parse_states[source_key] = ClaudeParseState()
+        return self._claude_parse_states[source_key]
+
+    def _write_jsonl_delta(
+        self,
+        log_view: RichLog,
+        source_key: str,
+        lines: list[str],
+        *,
+        reset_state: bool = False,
+    ) -> bool:
+        """Append parsed JSONL lines using normalized event rendering."""
+        state = self._get_claude_parse_state(source_key, reset=reset_state)
+        events = []
         for line in lines:
-            parsed = format_jsonl_line(line)
-            if parsed is None:
-                continue
-            text, style = parsed
-            rendered.append(text, style=style or None)
+            events.extend(parse_jsonl_line(line, state))
+
+        rendered = render_parsed_events(
+            events,
+            mode=self._claude_mode,
+            show_thinking=self._claude_show_thinking,
+            show_raw=self._claude_show_raw,
+        )
         if rendered.plain:
             log_view.write(rendered)
             return True
@@ -302,22 +345,16 @@ class TUIApp(App[None]):
                 log_view.write(Markdown(selected_task.description or "_(no description)_"))
                 content_changed = True
                 self._last_source_key = "description"
-                self._rendered_line_count = 0
-                self._rendered_total = 0
-                self._rendered_generation = 0
+                self._reset_render_state(clear_source=False)
                 return
 
-            self.query_one("#log-title", Static).update(
-                "follow:on" if self._follow_logs else "follow:off"
-            )
+            self.query_one("#log-title", Static).update(self._log_title_text())
 
             source_changed = source_key != self._last_source_key
             if source_changed:
                 log_view.clear()
                 content_changed = True
-                self._rendered_line_count = 0
-                self._rendered_total = 0
-                self._rendered_generation = 0
+                self._reset_render_state(clear_source=False)
 
             # TermScreen path: clear + rewrite on each new generation
             if term is not None:
@@ -341,8 +378,7 @@ class TUIApp(App[None]):
 
             if new_count < 0:
                 log_view.clear()
-                self._rendered_line_count = 0
-                self._rendered_total = 0
+                self._reset_render_state(clear_source=False)
                 new_count = total
                 content_changed = True
 
@@ -355,11 +391,27 @@ class TUIApp(App[None]):
                 elif new_count > len(lines):
                     log_view.clear()
                     chunk = lines[-_MAX_LOG_LINES_PER_REFRESH:]
-                    content_changed = self._write_jsonl_delta(log_view, chunk) or content_changed
+                    content_changed = (
+                        self._write_jsonl_delta(
+                            log_view,
+                            source_key,
+                            chunk,
+                            reset_state=True,
+                        )
+                        or content_changed
+                    )
                 else:
                     cap = min(new_count, _MAX_LOG_LINES_PER_REFRESH)
                     delta = lines[-cap:]
-                    content_changed = self._write_jsonl_delta(log_view, delta) or content_changed
+                    content_changed = (
+                        self._write_jsonl_delta(
+                            log_view,
+                            source_key,
+                            delta,
+                            reset_state=source_changed,
+                        )
+                        or content_changed
+                    )
                 self._rendered_total = total
                 self._rendered_line_count = len(lines)
             else:
@@ -403,10 +455,7 @@ class TUIApp(App[None]):
             return
         self._selected_index = max(0, min(row_index, len(self._tasks) - 1))
         if self._active_source != "server":
-            self._last_source_key = ""
-            self._rendered_line_count = 0
-            self._rendered_total = 0
-            self._rendered_generation = 0
+            self._reset_render_state()
             self._refresh_logs()
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
@@ -433,20 +482,14 @@ class TUIApp(App[None]):
         if source == self._active_source:
             return
         self._active_source = source
-        self._last_source_key = ""
-        self._rendered_line_count = 0
-        self._rendered_total = 0
-        self._rendered_generation = 0
+        self._reset_render_state()
         self._refresh_logs()
 
     def action_next_log_source(self) -> None:
         """Cycle to the next log source tab."""
         index = _LOG_SOURCES.index(self._active_source)
         self._active_source = _LOG_SOURCES[(index + 1) % len(_LOG_SOURCES)]
-        self._last_source_key = ""
-        self._rendered_line_count = 0
-        self._rendered_total = 0
-        self._rendered_generation = 0
+        self._reset_render_state()
         self.query_one("#log-tabs", Tabs).active = f"source-{self._active_source}"
         self._refresh_logs()
 
@@ -454,10 +497,7 @@ class TUIApp(App[None]):
         """Cycle to the previous log source tab."""
         index = _LOG_SOURCES.index(self._active_source)
         self._active_source = _LOG_SOURCES[(index - 1) % len(_LOG_SOURCES)]
-        self._last_source_key = ""
-        self._rendered_line_count = 0
-        self._rendered_total = 0
-        self._rendered_generation = 0
+        self._reset_render_state()
         self.query_one("#log-tabs", Tabs).active = f"source-{self._active_source}"
         self._refresh_logs()
 
@@ -470,6 +510,28 @@ class TUIApp(App[None]):
             log_view.scroll_end(animate=False)
         self._refresh_logs()
 
+    def action_cycle_claude_mode(self) -> None:
+        """Cycle Claude timeline verbosity mode."""
+        mode_index = _CLAUDE_VIEW_MODES.index(self._claude_mode)
+        self._claude_mode = _CLAUDE_VIEW_MODES[(mode_index + 1) % len(_CLAUDE_VIEW_MODES)]
+        if self._active_source == "claude":
+            self._reset_render_state()
+            self._refresh_logs()
+
+    def action_toggle_claude_thinking(self) -> None:
+        """Toggle rendering of assistant thinking traces in Claude tab."""
+        self._claude_show_thinking = not self._claude_show_thinking
+        if self._active_source == "claude":
+            self._reset_render_state()
+            self._refresh_logs()
+
+    def action_toggle_claude_raw(self) -> None:
+        """Toggle raw payload preview in Claude tab."""
+        self._claude_show_raw = not self._claude_show_raw
+        if self._active_source == "claude":
+            self._reset_render_state()
+            self._refresh_logs()
+
     def action_focus_tasks(self) -> None:
         """Focus the task table pane."""
         self.query_one("#task-table", DataTable).focus()
@@ -481,10 +543,7 @@ class TUIApp(App[None]):
     def action_clear_log_view(self) -> None:
         """Clear currently rendered log content."""
         self.query_one("#log-view", RichLog).clear()
-        self._last_source_key = ""
-        self._rendered_line_count = 0
-        self._rendered_total = 0
-        self._rendered_generation = 0
+        self._reset_render_state()
 
     def action_jump_latest(self) -> None:
         """Jump log viewport to the latest entries."""
@@ -504,19 +563,13 @@ class TUIApp(App[None]):
         if self._description_preview_task_id is None:
             return
         self._description_preview_task_id = None
-        self._last_source_key = ""
-        self._rendered_line_count = 0
-        self._rendered_total = 0
-        self._rendered_generation = 0
+        self._reset_render_state()
         self._refresh_logs()
 
     def action_reset_layout(self) -> None:
         """Reset UI layout state after maximize or preview actions."""
         self.screen.minimize()
         self._description_preview_task_id = None
-        self._last_source_key = ""
-        self._rendered_line_count = 0
-        self._rendered_total = 0
-        self._rendered_generation = 0
+        self._reset_render_state()
         self._refresh_logs()
         self.action_focus_tasks()

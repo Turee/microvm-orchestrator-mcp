@@ -634,6 +634,12 @@ cat .microvm/tasks/<id>/merge-result.json | jq .
 cat .microvm/tasks/<id>/claude-stream.jsonl | jq -s .
 ```
 
+Note: `claude-stream.jsonl` may contain a few non-JSON prelude lines (for example `nix develop` setup output) before JSON events begin. To inspect only JSON events:
+
+```bash
+grep -E '^\{' .microvm/tasks/<id>/claude-stream.jsonl | jq -s .
+```
+
 ### VM Boot Issues
 
 - **First boot is slow**: Creating the Nix store overlay (~30GB sparse file) takes time
