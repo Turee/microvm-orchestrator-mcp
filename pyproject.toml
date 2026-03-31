@@ -31,7 +31,10 @@ packages = ["src/microvm_orchestrator"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/microvm_orchestrator/default.nix" = "microvm_orchestrator/default.nix"
 "src/microvm_orchestrator/nix/vm-config.nix" = "microvm_orchestrator/nix/vm-config.nix"
+"src/microvm_orchestrator/nix/opencode.nix" = "microvm_orchestrator/nix/opencode.nix"
 "src/microvm_orchestrator/nix/scripts/run-claude-task.sh" = "microvm_orchestrator/nix/scripts/run-claude-task.sh"
+"src/microvm_orchestrator/nix/scripts/run-opencode-task.sh" = "microvm_orchestrator/nix/scripts/run-opencode-task.sh"
+"src/microvm_orchestrator/nix/scripts/run-task-dispatch.sh" = "microvm_orchestrator/nix/scripts/run-task-dispatch.sh"
 
 [dependency-groups]
 dev = [

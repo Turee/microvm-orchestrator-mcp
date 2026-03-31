@@ -16,6 +16,9 @@ let
     url = "https://github.com/sadjow/claude-code-nix/archive/refs/heads/main.tar.gz";
   };
 
+  # Fetch opencode binary from GitHub releases
+  opencode = pkgs.callPackage ./opencode.nix { };
+
   # Script to run Claude Code task
   runClaudeTask = pkgs.runCommand "run-claude-task" { } ''
     cp ${
@@ -27,6 +30,33 @@ let
         claudeCode = pkgs.claude-code;
         gnugrep = pkgs.gnugrep;
         nix = pkgs.nix;
+      }
+    } $out
+    chmod +x $out
+  '';
+
+  # Script to run OpenCode task
+  runOpenCodeTask = pkgs.runCommand "run-opencode-task" { } ''
+    cp ${
+      pkgs.replaceVars ./scripts/run-opencode-task.sh {
+        bash = pkgs.bash;
+        git = pkgs.git;
+        jq = pkgs.jq;
+        gawk = pkgs.gawk;
+        opencode = opencode;
+        nix = pkgs.nix;
+      }
+    } $out
+    chmod +x $out
+  '';
+
+  # Dispatcher script — reads /workspace/harness and exec's the right runner
+  runTaskDispatch = pkgs.runCommand "run-task-dispatch" { } ''
+    cp ${
+      pkgs.replaceVars ./scripts/run-task-dispatch.sh {
+        bash = pkgs.bash;
+        runClaudeTask = runClaudeTask;
+        runOpenCodeTask = runOpenCodeTask;
       }
     } $out
     chmod +x $out
@@ -81,7 +111,7 @@ in
     short-name-mode = "disabled"
   '';
 
-  # System packages for Claude Code
+  # System packages — include both harnesses so the VM image is harness-agnostic
   environment.systemPackages =
     with pkgs;
     [
@@ -91,6 +121,7 @@ in
       coreutils
       gnugrep
       claude-code
+      opencode
       podman-compose # For docker-compose.yml support
     ];
 
@@ -106,7 +137,7 @@ in
     trusted-users = [ "root" "claude" ];
   };
 
-  # Autologin and run task script
+  # Autologin and run task dispatch script
   services.getty.autologinUser = "root";
   programs.bash.loginShellInit = ''
     # Only run the task from the serial console getty (hvc0).
@@ -126,8 +157,8 @@ in
         sleep 1
       done
 
-      # Run the Claude task
-      ${runClaudeTask}
+      # Dispatch to the appropriate harness runner
+      ${runTaskDispatch}
 
       # Power off when done
       poweroff

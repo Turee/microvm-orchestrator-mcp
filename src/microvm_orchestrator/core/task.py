@@ -65,6 +65,7 @@ class Task:
     status: TaskStatus
     slot: int
     repo_path: Path
+    harness: str = "claude-code"
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -81,7 +82,7 @@ class Task:
             object.__setattr__(self, "_lock", threading.Lock())
 
     @classmethod
-    def create(cls, description: str, slot: int, repo_path: Path) -> Task:
+    def create(cls, description: str, slot: int, repo_path: Path, harness: str = "claude-code") -> Task:
         """Create a new task with generated ID."""
         return cls(
             id=str(uuid.uuid4()),
@@ -89,6 +90,7 @@ class Task:
             status=TaskStatus.PENDING,
             slot=slot,
             repo_path=repo_path,
+            harness=harness,
         )
 
     @property
@@ -140,6 +142,7 @@ class Task:
             "status": self.status.value,
             "slot": self.slot,
             "repo_path": str(self.repo_path),
+            "harness": self.harness,
             "created_at": self.created_at.isoformat(),
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
@@ -160,6 +163,7 @@ class Task:
             status=TaskStatus(data["status"]),
             slot=data["slot"],
             repo_path=Path(data["repo_path"]),
+            harness=data.get("harness", "claude-code"),
             created_at=datetime.fromisoformat(data["created_at"]),
             started_at=datetime.fromisoformat(data["started_at"]) if data.get("started_at") else None,
             completed_at=datetime.fromisoformat(data["completed_at"]) if data.get("completed_at") else None,
