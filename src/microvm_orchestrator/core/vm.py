@@ -356,7 +356,10 @@ def prepare_vm_env(
 
 
 def write_task_files(task: Task, api_key: str, start_ref: str, *, model: str = "") -> None:
-    """Write task description and API key files."""
+    """Write task description and harness-specific files."""
+    from .harness import get_harness
+    from . import harnesses  # noqa: F401 — ensure all harnesses are registered
+
     task.task_dir.mkdir(parents=True, exist_ok=True)
 
     # Write task description
@@ -368,11 +371,9 @@ def write_task_files(task: Task, api_key: str, start_ref: str, *, model: str = "
     # Write task ID
     (task.task_dir / "task-id").write_text(task.id)
 
-    # Write API key (will be deleted by VM after reading)
-    api_key_file = task.api_key_path
-    api_key_file.write_text(api_key)
-    api_key_file.chmod(0o600)
+    # Write harness identifier (for VM-side dispatch)
+    (task.task_dir / "harness").write_text(task.harness)
 
-    # Write model selection (optional)
-    if model:
-        (task.task_dir / "model").write_text(model)
+    # Delegate harness-specific files (API key, config, model, etc.)
+    harness = get_harness(task.harness)
+    harness.write_task_files(task.task_dir, api_key, model=model)

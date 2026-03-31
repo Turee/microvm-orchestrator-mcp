@@ -30,18 +30,20 @@ def get_orchestrator() -> Orchestrator:
 
 
 @mcp.tool()
-async def run_task(description: str, repo: str, model: str = "", mem: int = 4096, vcpu: int = 4) -> dict:
+async def run_task(description: str, repo: str, model: str = "", harness: str = "claude-code", mem: int = 4096, vcpu: int = 4) -> dict:
     """Start a new task in an isolated microVM.
 
     Args:
-        description: Task description/instructions for Claude in the VM.
+        description: Task description/instructions for the AI coding harness in the VM.
             If the task involves running Docker containers, include
             instructions to use --network=host (required for networking
             to work correctly inside the microVM).
         repo: Repository alias (registered via CLI). Use list_repos() to see
             available repositories. The alias is the repository name, not the path.
-        model: Optional model to use for Claude in the VM (e.g.
-            'claude-sonnet-4-5-20250929'). If empty, uses Claude's default.
+        model: Optional model override for the harness (e.g.
+            'claude-sonnet-4-5-20250929'). If empty, uses the harness default.
+        harness: AI coding harness to use inside the VM. Defaults to
+            'claude-code'. Supported values: 'claude-code', 'opencode'.
         mem: Memory in MB for the microVM (default 4096).
         vcpu: Number of virtual CPUs for the microVM (default 4).
 
@@ -50,7 +52,7 @@ async def run_task(description: str, repo: str, model: str = "", mem: int = 4096
     """
     try:
         orchestrator = get_orchestrator()
-        return await orchestrator.run_task(description, repo, model=model, mem=mem, vcpu=vcpu)
+        return await orchestrator.run_task(description, repo, model=model, harness=harness, mem=mem, vcpu=vcpu)
     except ToolError as e:
         return {"error": str(e)}
     except Exception as e:

@@ -166,7 +166,7 @@ class Orchestrator:
         self._processes.pop(task.id, None)
 
     # Tool: run_task
-    async def run_task(self, description: str, repo: str, *, model: str = "", mem: int = 4096, vcpu: int = 4, disk: int = 30000) -> dict[str, Any]:
+    async def run_task(self, description: str, repo: str, *, model: str = "", harness: str = "claude-code", mem: int = 4096, vcpu: int = 4, disk: int = 30000) -> dict[str, Any]:
         """
         Start a new task in a microVM.
 
@@ -174,16 +174,27 @@ class Orchestrator:
         are run in thread pools to avoid blocking the event loop.
 
         Args:
-            description: Task description/instructions for Claude.
+            description: Task description/instructions for the AI coding harness.
                 If the task involves running Docker containers, include
                 instructions to use --network=host (required for networking
                 to work correctly inside the microVM).
             repo: Repository alias (registered via CLI 'allow' command).
                 Use the repository name, not the path.
+            harness: AI coding harness to use. Defaults to 'claude-code'.
+                Use available_harnesses() to see registered harnesses.
 
         Returns:
             {"task_id": str}
         """
+        from .core.harness import get_harness
+        from .core import harnesses  # noqa: F401 — ensure all harnesses are registered
+
+        # Validate harness early — raises ValueError if unknown
+        try:
+            get_harness(harness)
+        except ValueError as e:
+            raise ToolError(str(e))
+
         # Validate
         plugin_dir = self._get_plugin_dir()
         api_key = self._get_api_key()
@@ -212,6 +223,7 @@ class Orchestrator:
             description=description,
             slot=slot,
             repo_path=repo_path,
+            harness=harness,
         )
         # Override the auto-generated ID to use the one we already registered with SlotManager
         task.id = task_id
