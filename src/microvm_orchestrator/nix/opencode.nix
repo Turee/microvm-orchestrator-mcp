@@ -2,18 +2,24 @@
 
 # Nix derivation to fetch the opencode binary from GitHub releases.
 # See https://github.com/opencode-ai/opencode for upstream releases.
+#
+# To update: find the new version tag, download the checksums.txt from the
+# GitHub release page, and run:
+#   nix hash convert --hash-algo sha256 --to sri <hex-hash>
+# for each platform archive.
 let
-  version = "0.1.82";
+  version = "0.0.55";
 
   # Platform-specific release assets.
+  # Hashes sourced from the checksums.txt for release v0.0.55.
   sources = {
     "x86_64-linux" = {
-      url = "https://github.com/opencode-ai/opencode/releases/download/v${version}/opencode_Linux_x86_64.tar.gz";
-      sha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+      url = "https://github.com/opencode-ai/opencode/releases/download/v${version}/opencode-linux-x86_64.tar.gz";
+      hash = "sha256-fx9BID55IK7Ejz4iFtM06c6MbQp7EHzrdY/vpNTJgCU=";
     };
     "aarch64-linux" = {
-      url = "https://github.com/opencode-ai/opencode/releases/download/v${version}/opencode_Linux_arm64.tar.gz";
-      sha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+      url = "https://github.com/opencode-ai/opencode/releases/download/v${version}/opencode-linux-arm64.tar.gz";
+      hash = "sha256-Uw6xNv38nq3vlqoiULvbkhDp98wb1Pcz0zLKndYdIuA=";
     };
   };
 
@@ -24,10 +30,8 @@ pkgs.stdenv.mkDerivation {
   inherit version;
 
   src = pkgs.fetchurl {
-    inherit (src) url sha256;
+    inherit (src) url hash;
   };
-
-  nativeBuildInputs = [ pkgs.installShellFiles ];
 
   sourceRoot = ".";
 

@@ -251,8 +251,6 @@ unset TOKEN
 chown claude "$TMP_TOKEN" 2>/dev/null || true
 chmod 600 "$TMP_TOKEN" 2>/dev/null || true
 
-TASK=$(cat "/workspace/task.md")
-
 rm -f "$STREAM_LOG_FILE"
 touch "$STREAM_LOG_FILE"
 chmod 666 "$STREAM_LOG_FILE"
